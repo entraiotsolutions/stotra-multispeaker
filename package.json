@@ -1,0 +1,31 @@
+{
+  "name": "stotra-multispeaker",
+  "version": "1.0.0",
+  "description": "Standalone audio app using LiveKit",
+  "main": "server/index.js",
+  "scripts": {
+    "dev": "concurrently \"pnpm dev:server\" \"pnpm dev:client\"",
+    "dev:server": "cross-env NODE_ENV=development node server/index.js",
+    "dev:client": "vite -c client/vite.config.ts",
+    "build": "vite build -c client/vite.config.ts",
+    "start": "node server/index.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.991.0",
+    "cors": "^2.8.6",
+    "dotenv": "^16.6.1",
+    "express": "^5.2.1",
+    "livekit-client": "^2.17.1",
+    "livekit-server-sdk": "^2.15.0"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^20.0.0",
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
+    "typescript": "^5.8.3",
+    "vite": "^7.3.1"
+  },
+  "packageManager": "pnpm@10.22.0"
+}

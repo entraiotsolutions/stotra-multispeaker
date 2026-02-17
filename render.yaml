@@ -1,0 +1,40 @@
+services:
+  - type: web
+    name: livekit-audio-app
+    env: node
+    plan: starter
+    buildCommand: pnpm install && pnpm build:demo
+    startCommand: node server/index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        fromService:
+          type: web
+          name: livekit-audio-app
+          property: port
+      - key: LIVEKIT_API_KEY
+        sync: false
+      - key: LIVEKIT_API_SECRET
+        sync: false
+      - key: LIVEKIT_URL
+        sync: false
+      - key: LIVEKIT_HTTP_URL
+        sync: false
+      - key: VITE_LIVEKIT_URL
+        sync: false
+      - key: R2_ACCESS_KEY
+        sync: false
+        optional: true
+      - key: R2_SECRET_KEY
+        sync: false
+        optional: true
+      - key: R2_BUCKET
+        sync: false
+        optional: true
+      - key: R2_ENDPOINT
+        sync: false
+        optional: true
+      - key: WEBHOOK_SECRET
+        sync: false
+        optional: true

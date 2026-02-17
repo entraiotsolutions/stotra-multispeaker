@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <title>Stotra Audio Demo</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+
+<body>
+  <div class="app">
+    <!-- Sidebar: Configuration & Chat -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <h2><i class="fas fa-wave-square"></i> Stotra Audio</h2>
+      </div>
+
+      <div class="scroll-container">
+        <section class="panel connection-panel">
+          <h3>Connection</h3>
+          <div class="input-group">
+            <label for="session-id">Session ID / Room Name</label>
+            <div style="display: flex; gap: 5px;">
+              <input type="text" id="session-id" placeholder="Enter or generate session ID" style="flex: 1;" />
+              <button id="create-session-button" onclick="appActions.createSession()" class="btn btn-secondary" title="Create New Session">
+                <i class="fas fa-plus"></i>
+              </button>
+              <button id="generate-session-id-button" onclick="appActions.generateSessionId()" class="btn btn-secondary" title="Generate Random Session ID">
+                <i class="fas fa-random"></i>
+              </button>
+            </div>
+          </div>
+          <div class="input-group">
+            <label for="url">URL</label>
+            <input type="text" id="url" placeholder="LiveKit WebSocket URL" />
+          </div>
+          <div class="input-group">
+            <label for="token">Token</label>
+            <input type="text" id="token" placeholder="Paste token here" />
+          </div>
+
+          <div class="button-group">
+            <button id="generate-token-button" onclick="appActions.generateToken()" class="btn btn-secondary">
+              <i class="fas fa-key"></i> Generate Token
+            </button>
+            <button id="share-room-button" onclick="appActions.shareRoom()" class="btn btn-secondary"
+              title="Share Room">
+              <i class="fas fa-share-alt"></i> Share
+            </button>
+          </div>
+
+          <button id="connect-button" onclick="appActions.connectWithFormInput()" class="btn btn-primary full-width">
+            Connect
+          </button>
+        </section>
+
+        <section class="panel options-panel">
+          <div class="options-row">
+            <label class="toggle">
+              <input type="checkbox" id="publish-option" checked />
+              <span class="toggle-slider"></span>
+              Publish Mic
+            </label>
+            <label class="toggle">
+              <input type="checkbox" id="auto-subscribe" checked />
+              <span class="toggle-slider"></span>
+              Subscribe
+            </label>
+          </div>
+
+          <!-- Hidden/Advanced -->
+          <div style="display: none;">
+            <input type="checkbox" id="force-turn" />
+            <input type="checkbox" id="e2ee" />
+            <select id="crypto-key">
+              <option value="password">password</option>
+            </select>
+          </div>
+          <div class="device-selects">
+            <div class="select-wrapper">
+              <i class="fas fa-microphone"></i>
+              <select id="audio-input"></select>
+            </div>
+            <progress id="local-volume" max="1" value="0"></progress>
+            <div class="select-wrapper">
+              <i class="fas fa-headphones"></i>
+              <select id="audio-output"></select>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel chat-panel">
+          <h3>Chat</h3>
+          <div id="chat-area">
+            <textarea id="chat" readonly></textarea>
+            <div class="chat-input-row">
+              <input type="text" id="entry" placeholder="Type a message..." />
+              <button id="send-button" onclick="appActions.enterText()" disabled>
+                <i class="fas fa-paper-plane"></i>
+              </button>
+            </div>
+            <!-- File send hidden for simplicity but kept in cleanup if needed -->
+            <input id="file" type="file" style="display:none" onchange="appActions.sendFile()" />
+            <button onclick="document.getElementById('file').click()" class="btn btn-sm btn-outline"
+              style="margin-top: 5px;">
+              <i class="fas fa-paperclip"></i> Send File
+            </button>
+            <button id="cancel-chat-receive-button" onclick="appActions.cancelChatReceive()"
+              style="display:none">Cancel</button>
+          </div>
+        </section>
+
+        <section class="panel log-panel">
+          <details>
+            <summary>Logs</summary>
+            <textarea id="log" readonly></textarea>
+          </details>
+        </section>
+      </div>
+    </aside>
+
+    <!-- Main Stage -->
+    <main class="stage">
+      <header class="stage-header">
+        <div class="room-info">
+          <span class="badge">Audio Room</span>
+        </div>
+        <div class="stage-controls">
+          <!-- Keep hidden elements that demo.ts might reference or toggle -->
+          <button id="toggle-e2ee-button" style="display:none" onclick="appActions.toggleE2EE()">E2EE</button>
+          <button id="e2ee-ratchet-button" style="display:none" onclick="appActions.ratchetE2EEKey()">Ratchet</button>
+          <button id="disconnect-ws-button" style="display:none">WS</button>
+          <!-- disconnect-ws-button referenced in setButtonsForState -->
+
+          <button id="start-audio-button" onclick="appActions.startAudio()" disabled class="btn btn-warn">
+            <i class="fas fa-play"></i> Start Audio Context
+          </button>
+        </div>
+      </header>
+
+      <div id="participants-area" class="participants-grid">
+        <!-- Participants will be injected here -->
+      </div>
+
+      <footer class="controls-bar">
+        <div class="center-controls">
+          <button id="toggle-audio-button" class="control-btn" disabled onclick="appActions.toggleAudio()">
+            <i class="fas fa-microphone"></i>
+          </button>
+        </div>
+      </footer>
+    </main>
+  </div>
+
+  <!-- Hidden Elements required by JS -->
+  <div style="display: none;">
+    <!-- These were removed from my replacement list but I should double check if I missed any -->
+    <input type="checkbox" id="multicodec-simulcast" />
+    <!-- screen share area was defined by ID in JS, need to make sure loop doesn't fail if missing? 
+              I removed renderScreenShare calls, so it should be fine. 
+              But let's keep ids if simple -->
+    <div id="screenshare-area">
+      <span id="screenshare-info"></span>
+      <span id="screenshare-resolution"></span>
+      <video id="screenshare-video"></video>
+    </div>
+    <select id="simulate-scenario" onchange="appActions.handleScenario(event)">
+      <option value="" selected>Simulate</option>
+    </select>
+  </div>
+
+  <script src="./demo.ts" type="module"></script>
+</body>
+
+</html>

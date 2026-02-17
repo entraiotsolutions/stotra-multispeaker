@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  livekit-server:
+    image: livekit/livekit-server:latest
+    container_name: livekit-server
+    ports:
+      - "7880:7880"   # WebSocket
+      - "7881:7881"   # HTTP
+      - "7882:7882/udp" # UDP
+    environment:
+      - LIVEKIT_KEYS=${LIVEKIT_API_KEY}:${LIVEKIT_API_SECRET}
+    command: --dev
+    restart: unless-stopped
+    networks:
+      - livekit-network
+
+  demo-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: livekit-demo-app
+    ports:
+      - "3001:3001"
+    environment:
+      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
+      # Use public URL if you have a domain, otherwise use server IP
+      # For domain: wss://livekit.yourdomain.com
+      # For IP: ws://your-server-ip:7880
+      - LIVEKIT_URL=${LIVEKIT_URL:-ws://localhost:7880}
+      - NODE_ENV=production
+      - PORT=3001
+    depends_on:
+      - livekit-server
+    restart: unless-stopped
+    networks:
+      - livekit-network
+
+networks:
+  livekit-network:
+    driver: bridge
