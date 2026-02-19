@@ -59,34 +59,39 @@ class RecordingService {
       const fileName = `recordings/${sessionId}/${sessionId}-${timestamp}.mp3`;
 
       // Start Egress recording (audio only, MP3)
-      // Format for LiveKit SDK v2.15.0
+      // Format for LiveKit SDK v2.15.0 - output must be nested under 'output'
       const egressRequest = {
         roomName: roomName,
         layout: '', // Empty layout for audio-only
         audioOnly: true,
         audioCodec: 1, // MP3 = 1, OPUS = 2, AAC = 3
-        file: {
-          fileType: 1, // MP3 = 1
-          filepath: fileName, // Path within bucket
-          s3: {
-            accessKey: config.r2.accessKeyId,
-            secret: config.r2.secretAccessKey,
-            region: config.r2.region || 'auto',
-            endpoint: config.r2.endpoint,
-            bucket: config.r2.bucket,
-            forcePathStyle: true, // Required for R2 compatibility
+        output: {
+          file: {
+            fileType: 1, // MP3 = 1
+            filepath: fileName, // Path within bucket
+            s3: {
+              accessKey: config.r2.accessKeyId,
+              secret: config.r2.secretAccessKey,
+              region: config.r2.region || 'auto',
+              endpoint: config.r2.endpoint,
+              bucket: config.r2.bucket,
+              forcePathStyle: true, // Required for R2 compatibility
+            },
           },
         },
       };
 
       console.log(`[RecordingService] Egress request (sanitized):`, JSON.stringify({
         ...egressRequest,
-        file: {
-          ...egressRequest.file,
-          s3: {
-            ...egressRequest.file.s3,
-            accessKey: '***',
-            secret: '***',
+        output: {
+          ...egressRequest.output,
+          file: {
+            ...egressRequest.output.file,
+            s3: {
+              ...egressRequest.output.file.s3,
+              accessKey: '***',
+              secret: '***',
+            },
           },
         },
       }, null, 2));
