@@ -35,13 +35,24 @@ class RecordingService {
       }
 
       // Check if room exists and is active
-      const rooms = await this.roomService.listRooms([roomName]);
+      let rooms;
+      try {
+        rooms = await this.roomService.listRooms([roomName]);
+      } catch (roomError) {
+        console.error(`[RecordingService] Error checking room:`, roomError);
+        throw new Error(`Failed to check room status: ${roomError.message}`);
+      }
+      
       if (rooms.length === 0) {
         throw new Error(`Room ${roomName} does not exist. Please ensure participants are connected to the room before starting recording.`);
       }
       
       const room = rooms[0];
       console.log(`[RecordingService] Room found: ${roomName}, participants: ${room.numParticipants || 0}`);
+      
+      if (room.numParticipants === 0) {
+        console.warn(`[RecordingService] Warning: Room ${roomName} has no participants. Recording may not capture any audio.`);
+      }
 
       // Generate R2 file path
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -60,7 +71,7 @@ class RecordingService {
           s3: {
             accessKey: config.r2.accessKeyId,
             secret: config.r2.secretAccessKey,
-            region: config.r2.region,
+            region: config.r2.region || 'auto',
             endpoint: config.r2.endpoint,
             bucket: config.r2.bucket,
             forcePathStyle: true, // Required for R2 compatibility
