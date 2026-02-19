@@ -53,6 +53,13 @@ router.post('/:sessionId/join', async (req, res) => {
 
     // Generate token
     const tokenData = await tokenService.generateToken(session.roomName, identity);
+    
+    // If session has no participants yet and has a temporary creator identity, update it to the actual token identity
+    // This ensures the first person to join becomes the creator
+    if (session.participants.length === 0 && (!session.creatorIdentity || session.creatorIdentity.startsWith('creator-'))) {
+      session.creatorIdentity = tokenData.identity;
+      console.log(`[Sessions] Updated creator identity for session ${sessionId} to ${tokenData.identity}`);
+    }
 
     res.json({
       success: true,

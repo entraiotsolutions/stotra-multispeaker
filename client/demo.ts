@@ -229,15 +229,26 @@ const appActions = {
 
   checkIfCreator: async () => {
     try {
-      if (!state.currentSessionId) return;
+      if (!state.currentSessionId || !state.currentUserIdentity) {
+        console.log('Cannot check creator: missing sessionId or userIdentity');
+        return;
+      }
       
       const response = await fetch(`/api/sessions/${state.currentSessionId}`);
       if (response.ok) {
         const data = await response.json();
+        console.log('Creator check response:', {
+          session: data.session,
+          userIdentity: state.currentUserIdentity,
+          creatorIdentity: data.session?.creatorIdentity
+        });
         if (data.success && data.session) {
           state.isCreator = data.session.creatorIdentity === state.currentUserIdentity;
+          console.log('Is creator:', state.isCreator);
           appActions.updateRecordingButtons();
         }
+      } else {
+        console.error('Failed to fetch session:', response.status);
       }
     } catch (error: any) {
       console.error('Error checking creator status:', error);
@@ -247,6 +258,12 @@ const appActions = {
   updateRecordingButtons: () => {
     const startBtn = $('start-recording-button');
     const stopBtn = $('stop-recording-button');
+    
+    console.log('Updating recording buttons:', {
+      sessionId: state.currentSessionId,
+      isCreator: state.isCreator,
+      userIdentity: state.currentUserIdentity
+    });
     
     if (!state.currentSessionId || !state.isCreator) {
       if (startBtn) startBtn.style.display = 'none';
@@ -258,6 +275,7 @@ const appActions = {
     fetch(`/api/sessions/${state.currentSessionId}`)
       .then(res => res.json())
       .then(data => {
+        console.log('Session data:', data);
         if (data.success && data.session) {
           if (data.session.isRecording) {
             if (startBtn) startBtn.style.display = 'none';
@@ -268,7 +286,12 @@ const appActions = {
           }
         }
       })
-      .catch(err => console.error('Error updating buttons:', err));
+      .catch(err => {
+        console.error('Error updating buttons:', err);
+        // Show start button by default if there's an error
+        if (startBtn) startBtn.style.display = 'inline-block';
+        if (stopBtn) stopBtn.style.display = 'none';
+      });
   },
 
   startRecording: async () => {
