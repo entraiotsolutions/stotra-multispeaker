@@ -301,6 +301,7 @@ const appActions = {
         return;
       }
 
+      appendLog('Starting recording...');
       const response = await fetch(`/api/recordings/session/${state.currentSessionId}/start`, {
         method: 'POST',
         headers: {
@@ -316,7 +317,12 @@ const appActions = {
         appendLog('Recording started successfully');
         appActions.updateRecordingButtons();
       } else {
-        appendLog(`Failed to start recording: ${data.error}`);
+        const errorMsg = data.error || 'Unknown error';
+        const errorType = data.errorType || '';
+        appendLog(`Failed to start recording: ${errorMsg}${errorType ? ` (${errorType})` : ''}`);
+        if (data.details) {
+          console.error('Recording error details:', data.details);
+        }
       }
     } catch (error: any) {
       appendLog(`Error starting recording: ${error.message}`);

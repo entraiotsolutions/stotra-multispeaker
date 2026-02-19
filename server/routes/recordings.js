@@ -95,6 +95,7 @@ router.post('/session/:sessionId/start', async (req, res) => {
     }
 
     // Start recording
+    console.log(`[Recordings] Attempting to start recording for session: ${sessionId}, room: ${session.roomName}`);
     const egressId = await recordingService.startRecording(session.roomName, sessionId);
 
     res.json({
@@ -104,10 +105,25 @@ router.post('/session/:sessionId/start', async (req, res) => {
     });
   } catch (error) {
     console.error('[Recordings] Error starting recording:', error);
+    console.error('[Recordings] Error name:', error.name);
+    console.error('[Recordings] Error message:', error.message);
     console.error('[Recordings] Error stack:', error.stack);
+    
+    // Log additional error properties if they exist
+    if (error.response) {
+      console.error('[Recordings] Error response:', error.response);
+    }
+    if (error.status) {
+      console.error('[Recordings] Error status:', error.status);
+    }
+    if (error.code) {
+      console.error('[Recordings] Error code:', error.code);
+    }
+    
     res.status(500).json({ 
       success: false, 
       error: error.message || 'Failed to start recording',
+      errorType: error.name,
       details: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }

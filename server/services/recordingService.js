@@ -91,7 +91,24 @@ class RecordingService {
         },
       }, null, 2));
       
-      const egress = await this.egressClient.startRoomCompositeEgress(egressRequest);
+      console.log(`[RecordingService] Calling LiveKit egress API at: ${config.livekit.httpUrl}`);
+      console.log(`[RecordingService] Room name: ${roomName}, File path: ${fileName}`);
+      
+      let egress;
+      try {
+        egress = await this.egressClient.startRoomCompositeEgress(egressRequest);
+      } catch (egressError) {
+        console.error(`[RecordingService] Egress API call failed:`, {
+          message: egressError.message,
+          name: egressError.name,
+          code: egressError.code,
+          status: egressError.status,
+          statusCode: egressError.statusCode,
+          response: egressError.response ? (typeof egressError.response === 'string' ? egressError.response : JSON.stringify(egressError.response, null, 2)) : undefined,
+          stack: egressError.stack,
+        });
+        throw egressError;
+      }
       const egressId = egress.egressId;
       console.log(`[RecordingService] Recording started with egress ID: ${egressId}`);
       
