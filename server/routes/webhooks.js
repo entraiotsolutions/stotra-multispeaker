@@ -61,12 +61,8 @@ async function handleParticipantJoined(event) {
   const roomName = room.name;
   
   // Try to find session by room name (sessionId = roomName)
-  const session = sessionService.getSession(roomName);
-  
-  if (!session) {
-    console.log(`[Webhooks] No session found for room: ${roomName}`);
-    return;
-  }
+  // Auto-create session if it doesn't exist (ensures recording always works)
+  const session = sessionService.createOrGetSession(roomName);
 
   // Add participant to session
   sessionService.addParticipant(roomName, participant.identity);
@@ -76,15 +72,8 @@ async function handleParticipantJoined(event) {
 
   console.log(`[Webhooks] Participant ${participant.identity} joined room ${roomName}. Total participants: ${participantCount}`);
 
-  // Start recording if this is the first participant
-  if (participantCount === 1 && !session.isRecording) {
-    try {
-      console.log(`[Webhooks] First participant joined, starting recording for session: ${roomName}`);
-      await recordingService.startRecording(roomName, roomName);
-    } catch (error) {
-      console.error(`[Webhooks] Error starting recording:`, error);
-    }
-  }
+  // Note: Recording is now manually controlled via API endpoints
+  // Auto-recording has been disabled in favor of manual start/stop buttons
 }
 
 /**
@@ -94,13 +83,8 @@ async function handleParticipantLeft(event) {
   const { room, participant } = event;
   const roomName = room.name;
   
-  // Try to find session by room name
-  const session = sessionService.getSession(roomName);
-  
-  if (!session) {
-    console.log(`[Webhooks] No session found for room: ${roomName}`);
-    return;
-  }
+  // Try to find session by room name (auto-create if needed for consistency)
+  const session = sessionService.createOrGetSession(roomName);
 
   // Remove participant from session
   sessionService.removeParticipant(roomName, participant.identity);
@@ -110,16 +94,8 @@ async function handleParticipantLeft(event) {
 
   console.log(`[Webhooks] Participant ${participant.identity} left room ${roomName}. Remaining participants: ${participantCount}`);
 
-  // Stop recording if this was the last participant
-  if (participantCount === 0 && session.isRecording && session.recordingEgressId) {
-    try {
-      console.log(`[Webhooks] Last participant left, stopping recording for session: ${roomName}`);
-      await recordingService.stopRecording(session.recordingEgressId);
-      // Note: Recording completion will be handled by egress_ended event
-    } catch (error) {
-      console.error(`[Webhooks] Error stopping recording:`, error);
-    }
-  }
+  // Note: Recording stop is now manually controlled via API endpoints
+  // Auto-stop has been disabled in favor of manual stop button
 }
 
 /**

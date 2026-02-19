@@ -137,6 +137,14 @@
           <button id="disconnect-ws-button" style="display:none">WS</button>
           <!-- disconnect-ws-button referenced in setButtonsForState -->
 
+          <!-- Recording controls (visible only to session creator) -->
+          <button id="start-recording-button" onclick="appActions.startRecording()" style="display:none" class="btn btn-primary">
+            <i class="fas fa-record-vinyl"></i> Start Session
+          </button>
+          <button id="stop-recording-button" onclick="appActions.stopRecording()" style="display:none" class="btn btn-danger">
+            <i class="fas fa-stop"></i> Stop Session
+          </button>
+
           <button id="start-audio-button" onclick="appActions.startAudio()" disabled class="btn btn-warn">
             <i class="fas fa-play"></i> Start Audio Context
           </button>

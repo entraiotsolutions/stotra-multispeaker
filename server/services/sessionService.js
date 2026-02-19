@@ -23,14 +23,16 @@ class SessionService {
 
   /**
    * Create a new session
+   * @param {string} creatorIdentity - The identity of the user creating the session
    * @returns {Object} Session object
    */
-  createSession() {
+  createSession(creatorIdentity = null) {
     const sessionId = this.generateSessionId();
     const session = {
       sessionId,
       roomName: sessionId, // Use sessionId as room name
       createdAt: new Date(),
+      creatorIdentity: creatorIdentity, // Track who created the session
       participants: [],
       isRecording: false,
       recordingEgressId: null,
@@ -38,8 +40,44 @@ class SessionService {
     };
 
     this.sessions.set(sessionId, session);
-    console.log(`[SessionService] Created session: ${sessionId}`);
+    console.log(`[SessionService] Created session: ${sessionId} by ${creatorIdentity || 'unknown'}`);
     return session;
+  }
+
+  /**
+   * Create or get a session with a specific ID
+   * @param {string} sessionId - The session ID to use
+   * @param {string} creatorIdentity - Optional creator identity
+   * @returns {Object} Session object
+   */
+  createOrGetSession(sessionId, creatorIdentity = null) {
+    let session = this.getSession(sessionId);
+    if (!session) {
+      session = {
+        sessionId,
+        roomName: sessionId, // Use sessionId as room name
+        createdAt: new Date(),
+        creatorIdentity: creatorIdentity,
+        participants: [],
+        isRecording: false,
+        recordingEgressId: null,
+        recordingStartedAt: null,
+      };
+      this.sessions.set(sessionId, session);
+      console.log(`[SessionService] Created session with ID: ${sessionId}`);
+    }
+    return session;
+  }
+
+  /**
+   * Check if a user is the creator of a session
+   * @param {string} sessionId
+   * @param {string} identity
+   * @returns {boolean}
+   */
+  isCreator(sessionId, identity) {
+    const session = this.getSession(sessionId);
+    return session && session.creatorIdentity === identity;
   }
 
   /**

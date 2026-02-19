@@ -53,6 +53,10 @@ const state = {
   bitrateInterval: undefined as any,
   e2eeKeyProvider: new ExternalE2EEKeyProvider({ ratchetWindowSize: 100 }),
   chatMessages: new Map<string, { text: string; participant?: Participant }>(),
+  currentSessionId: '' as string,
+  creatorIdentity: '' as string,
+  currentUserIdentity: '' as string,
+  isCreator: false as boolean,
 };
 let currentRoom: Room | undefined;
 
@@ -112,11 +116,17 @@ function updateSearchParams(url: string, token: string, key: string, sessionId?:
 const appActions = {
   createSession: async () => {
     try {
+      // Generate a temporary identity for the creator (will be replaced when token is generated)
+      const tempIdentity = `creator-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      
       const response = await fetch('/api/sessions/create', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
+        body: JSON.stringify({
+          creatorIdentity: tempIdentity,
+        }),
       });
 
       if (!response.ok) {
@@ -127,6 +137,8 @@ const appActions = {
       if (data.success && data.sessionId) {
         const newSessionId = data.sessionId;
         (<HTMLInputElement>$('session-id')).value = newSessionId;
+        state.currentSessionId = newSessionId;
+        state.creatorIdentity = data.creatorIdentity || tempIdentity;
         appendLog(`Created new session: ${newSessionId}`);
         appendLog(`Shareable link: ${data.shareableLink}`);
         
@@ -200,13 +212,122 @@ const appActions = {
       
       (<HTMLInputElement>$('url')).value = livekitUrl;
       (<HTMLInputElement>$('token')).value = data.token;
+      state.currentSessionId = data.sessionId;
+      state.currentUserIdentity = data.identity;
       appendLog(`Generated token for identity: ${data.identity}, session: ${data.sessionId}`);
+
+      // Check if user is the creator
+      await appActions.checkIfCreator();
 
       // Update URL with session info
       updateSearchParams(livekitUrl, data.token, (<HTMLSelectElement>$('crypto-key')).value, data.sessionId);
     } catch (error: any) {
       appendLog('Failed to generate token:', error.message);
       console.error('Token generation error:', error);
+    }
+  },
+
+  checkIfCreator: async () => {
+    try {
+      if (!state.currentSessionId) return;
+      
+      const response = await fetch(`/api/sessions/${state.currentSessionId}`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.session) {
+          state.isCreator = data.session.creatorIdentity === state.currentUserIdentity;
+          appActions.updateRecordingButtons();
+        }
+      }
+    } catch (error: any) {
+      console.error('Error checking creator status:', error);
+    }
+  },
+
+  updateRecordingButtons: () => {
+    const startBtn = $('start-recording-button');
+    const stopBtn = $('stop-recording-button');
+    
+    if (!state.currentSessionId || !state.isCreator) {
+      if (startBtn) startBtn.style.display = 'none';
+      if (stopBtn) stopBtn.style.display = 'none';
+      return;
+    }
+
+    // Check session status to determine which button to show
+    fetch(`/api/sessions/${state.currentSessionId}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.session) {
+          if (data.session.isRecording) {
+            if (startBtn) startBtn.style.display = 'none';
+            if (stopBtn) stopBtn.style.display = 'inline-block';
+          } else {
+            if (startBtn) startBtn.style.display = 'inline-block';
+            if (stopBtn) stopBtn.style.display = 'none';
+          }
+        }
+      })
+      .catch(err => console.error('Error updating buttons:', err));
+  },
+
+  startRecording: async () => {
+    try {
+      if (!state.currentSessionId || !state.currentUserIdentity) {
+        appendLog('No session or identity found. Please connect first.');
+        return;
+      }
+
+      const response = await fetch(`/api/recordings/session/${state.currentSessionId}/start`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          identity: state.currentUserIdentity,
+        }),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        appendLog('Recording started successfully');
+        appActions.updateRecordingButtons();
+      } else {
+        appendLog(`Failed to start recording: ${data.error}`);
+      }
+    } catch (error: any) {
+      appendLog(`Error starting recording: ${error.message}`);
+      console.error('Recording start error:', error);
+    }
+  },
+
+  stopRecording: async () => {
+    try {
+      if (!state.currentSessionId || !state.currentUserIdentity) {
+        appendLog('No session or identity found. Please connect first.');
+        return;
+      }
+
+      const response = await fetch(`/api/recordings/session/${state.currentSessionId}/stop`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          identity: state.currentUserIdentity,
+        }),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        appendLog('Recording stopped successfully. File will be processed and stored.');
+        appActions.updateRecordingButtons();
+      } else {
+        appendLog(`Failed to stop recording: ${data.error}`);
+      }
+    } catch (error: any) {
+      appendLog(`Error stopping recording: ${error.message}`);
+      console.error('Recording stop error:', error);
     }
   },
 
@@ -340,6 +461,8 @@ Alternative (manual setup):
           (<HTMLInputElement>$('url')).value = livekitUrl;
           token = data.token;
           url = livekitUrl;
+          state.currentSessionId = data.sessionId;
+          state.currentUserIdentity = data.identity;
           appendLog(`Auto-generated token for session: ${sessionId}`);
         } else {
           const errorData = await response.json().catch(() => ({}));
@@ -452,6 +575,11 @@ Alternative (manual setup):
         appendLog(`signal connection established in ${signalConnectionTime}ms`);
         // speed up publishing by starting to publish before it's fully connected
         // publishing is accepted as soon as signal connection has established
+        
+        // Store user identity and check if creator
+        state.currentUserIdentity = room.localParticipant.identity;
+        state.currentSessionId = room.name;
+        await appActions.checkIfCreator();
       })
       .on(RoomEvent.ParticipantEncryptionStatusChanged, () => {
         updateButtonsForPublishState();
@@ -624,6 +752,11 @@ Alternative (manual setup):
         `successfully connected to ${room.name} in ${Math.round(elapsed)}ms`,
         await room.engine.getConnectedServerAddress(),
       );
+      
+      // Check if user is creator and update recording buttons
+      state.currentSessionId = room.name;
+      state.currentUserIdentity = room.localParticipant.identity;
+      await appActions.checkIfCreator();
     } catch (error: any) {
       let message: any = error;
       if (error.message) {

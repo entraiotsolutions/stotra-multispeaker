@@ -3,6 +3,8 @@
 const express = require('express');
 const router = express.Router();
 const recordingStorage = require('../services/recordingStorage');
+const recordingService = require('../services/recordingService');
+const sessionService = require('../services/sessionService');
 
 /**
  * GET /api/recordings/session/:sessionId
@@ -60,6 +62,89 @@ router.get('/', async (req, res) => {
     });
   } catch (error) {
     console.error('[Recordings] Error getting all recordings:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * POST /api/recordings/session/:sessionId/start
+ * Start recording for a session (manual control)
+ */
+router.post('/session/:sessionId/start', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const { identity } = req.body; // Identity of the user requesting to start recording
+
+    // Check if session exists
+    const session = sessionService.getSession(sessionId);
+    if (!session) {
+      res.status(404).json({ success: false, error: 'Session not found' });
+      return;
+    }
+
+    // Check if user is the creator
+    if (!sessionService.isCreator(sessionId, identity)) {
+      res.status(403).json({ success: false, error: 'Only the session creator can start recording' });
+      return;
+    }
+
+    // Check if already recording
+    if (session.isRecording) {
+      res.status(400).json({ success: false, error: 'Recording is already in progress' });
+      return;
+    }
+
+    // Start recording
+    const egressId = await recordingService.startRecording(session.roomName, sessionId);
+
+    res.json({
+      success: true,
+      egressId: egressId,
+      message: 'Recording started successfully',
+    });
+  } catch (error) {
+    console.error('[Recordings] Error starting recording:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * POST /api/recordings/session/:sessionId/stop
+ * Stop recording for a session (manual control)
+ */
+router.post('/session/:sessionId/stop', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const { identity } = req.body; // Identity of the user requesting to stop recording
+
+    // Check if session exists
+    const session = sessionService.getSession(sessionId);
+    if (!session) {
+      res.status(404).json({ success: false, error: 'Session not found' });
+      return;
+    }
+
+    // Check if user is the creator
+    if (!sessionService.isCreator(sessionId, identity)) {
+      res.status(403).json({ success: false, error: 'Only the session creator can stop recording' });
+      return;
+    }
+
+    // Check if recording is in progress
+    if (!session.isRecording || !session.recordingEgressId) {
+      res.status(400).json({ success: false, error: 'No recording in progress' });
+      return;
+    }
+
+    // Stop recording
+    await recordingService.stopRecording(session.recordingEgressId);
+
+    res.json({
+      success: true,
+      message: 'Recording stopped successfully. File will be processed and stored.',
+    });
+  } catch (error) {
+    console.error('[Recordings] Error stopping recording:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });

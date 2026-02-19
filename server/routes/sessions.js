@@ -11,10 +11,12 @@ const tokenService = require('../services/tokenService');
  */
 router.post('/create', (req, res) => {
   try {
-    const session = sessionService.createSession();
+    const { creatorIdentity } = req.body; // Optional: identity of the creator
+    const session = sessionService.createSession(creatorIdentity);
     res.json({
       success: true,
       sessionId: session.sessionId,
+      creatorIdentity: session.creatorIdentity,
       shareableLink: `${req.protocol}://${req.get('host')}?sessionId=${session.sessionId}`,
     });
   } catch (error) {
@@ -85,6 +87,7 @@ router.get('/:sessionId', (req, res) => {
       session: {
         sessionId: session.sessionId,
         createdAt: session.createdAt,
+        creatorIdentity: session.creatorIdentity,
         participantCount: session.participants.length,
         isRecording: session.isRecording,
       },

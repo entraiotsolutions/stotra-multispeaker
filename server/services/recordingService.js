@@ -3,7 +3,6 @@
 const { RoomServiceClient, EgressClient } = require('livekit-server-sdk');
 const config = require('../config');
 const sessionService = require('./sessionService');
-const r2Service = require('./r2Service');
 const recordingStorage = require('./recordingStorage');
 
 class RecordingService {
@@ -29,6 +28,11 @@ class RecordingService {
   async startRecording(roomName, sessionId) {
     try {
       console.log(`[RecordingService] Starting recording for room: ${roomName}, session: ${sessionId}`);
+
+      // Validate R2 configuration
+      if (!config.r2.accessKeyId || !config.r2.secretAccessKey || !config.r2.bucket || !config.r2.endpoint) {
+        throw new Error('R2 configuration is missing. Please set R2_ACCESS_KEY, R2_SECRET_KEY, R2_BUCKET, and R2_ENDPOINT environment variables.');
+      }
 
       // Check if room exists
       const rooms = await this.roomService.listRooms([roomName]);
@@ -128,13 +132,19 @@ class RecordingService {
 
       // Extract file URL from egress info
       let fileUrl = null;
-      if (egressInfo.file && egressInfo.file.filename) {
-        // Construct R2 public URL or use the file path
-        // Adjust based on your R2 public URL structure
-        const fileName = egressInfo.file.filename;
-        fileUrl = `https://${config.r2.bucket}.r2.cloudflarestorage.com/${fileName}`;
-        // Or use your custom domain if configured:
-        // fileUrl = `https://your-custom-domain.com/${fileName}`;
+      if (egressInfo.file) {
+        // Try different possible property names for the filename
+        const fileName = egressInfo.file.filename || egressInfo.file.filepath || egressInfo.file.location;
+        if (fileName && config.r2.bucket) {
+          // Construct R2 public URL or use the file path
+          // Adjust based on your R2 public URL structure
+          fileUrl = `https://${config.r2.bucket}.r2.cloudflarestorage.com/${fileName}`;
+          // Or use your custom domain if configured:
+          // fileUrl = `https://your-custom-domain.com/${fileName}`;
+        } else if (egressInfo.file.url) {
+          // If LiveKit provides a direct URL, use it
+          fileUrl = egressInfo.file.url;
+        }
       }
 
       // Calculate duration
