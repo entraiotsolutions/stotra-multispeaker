@@ -59,23 +59,40 @@ class RecordingService {
       const fileName = `recordings/${sessionId}/${sessionId}-${timestamp}.mp3`;
 
       // Start Egress recording (audio only, MP3)
-      // Format for LiveKit SDK v2.15.0 - output must be nested under 'output'
+      // Format for LiveKit SDK v2.15.0
+      // The SDK's isEncodedOutputs method checks for output.file
+      // Based on error, the SDK might be checking the wrong property
+      // Try using 'file' directly at root level (some SDK versions expect this)
       const egressRequest = {
         roomName: roomName,
         layout: '', // Empty layout for audio-only
         audioOnly: true,
         audioCodec: 1, // MP3 = 1, OPUS = 2, AAC = 3
+        // Try 'file' at root level - SDK might transform it internally
+        file: {
+          fileType: 1, // MP3 = 1
+          filepath: fileName, // Path within bucket
+          s3: {
+            accessKey: config.r2.accessKeyId,
+            secret: config.r2.secretAccessKey,
+            region: config.r2.region || 'auto',
+            endpoint: config.r2.endpoint,
+            bucket: config.r2.bucket,
+            forcePathStyle: true, // Required for R2 compatibility
+          },
+        },
+        // Also include 'output' in case SDK looks for it
         output: {
           file: {
-            fileType: 1, // MP3 = 1
-            filepath: fileName, // Path within bucket
+            fileType: 1,
+            filepath: fileName,
             s3: {
               accessKey: config.r2.accessKeyId,
               secret: config.r2.secretAccessKey,
               region: config.r2.region || 'auto',
               endpoint: config.r2.endpoint,
               bucket: config.r2.bucket,
-              forcePathStyle: true, // Required for R2 compatibility
+              forcePathStyle: true,
             },
           },
         },
@@ -83,6 +100,14 @@ class RecordingService {
 
       console.log(`[RecordingService] Egress request (sanitized):`, JSON.stringify({
         ...egressRequest,
+        file: {
+          ...egressRequest.file,
+          s3: {
+            ...egressRequest.file.s3,
+            accessKey: '***',
+            secret: '***',
+          },
+        },
         output: {
           ...egressRequest.output,
           file: {
@@ -99,9 +124,20 @@ class RecordingService {
       console.log(`[RecordingService] Calling LiveKit egress API at: ${config.livekit.httpUrl}`);
       console.log(`[RecordingService] Room name: ${roomName}, File path: ${fileName}`);
       
+      // The SDK's isEncodedOutputs method is checking for output.file
+      // But it seems to be looking in the wrong place. Let's try passing
+      // the request with just 'output' (not 'file' at root) since that's what the error suggests
       let egress;
       try {
-        egress = await this.egressClient.startRoomCompositeEgress(egressRequest);
+        // Remove 'file' from root, keep only 'output'
+        const requestWithOutputOnly = {
+          roomName: egressRequest.roomName,
+          layout: egressRequest.layout,
+          audioOnly: egressRequest.audioOnly,
+          audioCodec: egressRequest.audioCodec,
+          output: egressRequest.output,
+        };
+        egress = await this.egressClient.startRoomCompositeEgress(requestWithOutputOnly);
       } catch (egressError) {
         console.error(`[RecordingService] Egress API call failed:`, {
           message: egressError.message,
