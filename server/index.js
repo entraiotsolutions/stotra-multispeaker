@@ -107,7 +107,7 @@ app.listen(PORT, HOST, () => {
   console.log(`  - http://localhost:${PORT} (local access)`);
   console.log(`LiveKit URL: ${config.livekit.url}`);
   console.log(`LiveKit HTTP URL: ${config.livekit.httpUrl}`);
-  console.log(`API Key: ${config.livekit.apiKey.substring(0, 8)}...`);
+  console.log(`API Key: ${config.livekit.apiKey ? config.livekit.apiKey.substring(0, 8) + '...' : 'not set'}`);
   
   if (config.r2.bucket) {
     console.log(`R2 Bucket: ${config.r2.bucket}`);
@@ -122,6 +122,7 @@ app.listen(PORT, HOST, () => {
   console.log(`  GET  /api/recordings/session/:sessionId - Get recordings for session`);
   console.log(`  POST /api/webhooks/livekit - LiveKit webhook handler`);
   console.log(`  GET  /health - Health check`);
+  console.log(`  GET  /api/config/check - Configuration check`);
 });
 
 module.exports = app;

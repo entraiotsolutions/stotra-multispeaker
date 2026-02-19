@@ -88,14 +88,6 @@ class RecordingService {
       sessionService.setRecording(sessionId, egressId);
       
       return egressId;
-
-      const egressId = egress.egressId;
-      console.log(`[RecordingService] Recording started with egress ID: ${egressId}`);
-
-      // Update session
-      sessionService.setRecording(sessionId, egressId);
-
-      return egressId;
     } catch (error) {
       console.error(`[RecordingService] Error starting recording:`, error);
       console.error(`[RecordingService] Error details:`, {
