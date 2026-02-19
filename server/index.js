@@ -50,6 +50,28 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Configuration check endpoint (for debugging)
+app.get('/api/config/check', (req, res) => {
+  res.json({
+    success: true,
+    config: {
+      livekit: {
+        httpUrl: config.livekit.httpUrl,
+        hasApiKey: !!config.livekit.apiKey,
+        hasApiSecret: !!config.livekit.apiSecret,
+        apiKeyPrefix: config.livekit.apiKey ? config.livekit.apiKey.substring(0, 8) + '...' : 'missing',
+      },
+      r2: {
+        hasAccessKey: !!config.r2.accessKeyId,
+        hasSecretKey: !!config.r2.secretAccessKey,
+        bucket: config.r2.bucket || 'not set',
+        endpoint: config.r2.endpoint || 'not set',
+        region: config.r2.region,
+      },
+    },
+  });
+});
+
 // Serve static files from client/dist (both development and production)
 const fs = require('fs');
 const distPath = path.join(__dirname, '..', 'client', 'dist');

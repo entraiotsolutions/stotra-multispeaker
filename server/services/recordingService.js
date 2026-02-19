@@ -34,18 +34,21 @@ class RecordingService {
         throw new Error('R2 configuration is missing. Please set R2_ACCESS_KEY, R2_SECRET_KEY, R2_BUCKET, and R2_ENDPOINT environment variables.');
       }
 
-      // Check if room exists
+      // Check if room exists and is active
       const rooms = await this.roomService.listRooms([roomName]);
       if (rooms.length === 0) {
-        throw new Error(`Room ${roomName} does not exist`);
+        throw new Error(`Room ${roomName} does not exist. Please ensure participants are connected to the room before starting recording.`);
       }
+      
+      const room = rooms[0];
+      console.log(`[RecordingService] Room found: ${roomName}, participants: ${room.numParticipants || 0}`);
 
       // Generate R2 file path
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const fileName = `recordings/${sessionId}/${sessionId}-${timestamp}.mp3`;
 
       // Start Egress recording (audio only, MP3)
-      // Using RoomCompositeEgressRequest format for audio-only recording
+      // Format for LiveKit SDK v2.15.0
       const egressRequest = {
         roomName: roomName,
         layout: '', // Empty layout for audio-only
@@ -65,7 +68,26 @@ class RecordingService {
         },
       };
 
+      console.log(`[RecordingService] Egress request (sanitized):`, JSON.stringify({
+        ...egressRequest,
+        file: {
+          ...egressRequest.file,
+          s3: {
+            ...egressRequest.file.s3,
+            accessKey: '***',
+            secret: '***',
+          },
+        },
+      }, null, 2));
+      
       const egress = await this.egressClient.startRoomCompositeEgress(egressRequest);
+      const egressId = egress.egressId;
+      console.log(`[RecordingService] Recording started with egress ID: ${egressId}`);
+      
+      // Update session
+      sessionService.setRecording(sessionId, egressId);
+      
+      return egressId;
 
       const egressId = egress.egressId;
       console.log(`[RecordingService] Recording started with egress ID: ${egressId}`);
@@ -76,7 +98,16 @@ class RecordingService {
       return egressId;
     } catch (error) {
       console.error(`[RecordingService] Error starting recording:`, error);
-      throw error;
+      console.error(`[RecordingService] Error details:`, {
+        message: error.message,
+        stack: error.stack,
+        name: error.name,
+        code: error.code,
+        status: error.status,
+        response: error.response ? (typeof error.response === 'string' ? error.response : JSON.stringify(error.response)) : undefined,
+      });
+      // Re-throw with more context
+      throw new Error(`Failed to start recording: ${error.message}`);
     }
   }
 

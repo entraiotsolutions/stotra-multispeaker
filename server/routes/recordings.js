@@ -104,7 +104,12 @@ router.post('/session/:sessionId/start', async (req, res) => {
     });
   } catch (error) {
     console.error('[Recordings] Error starting recording:', error);
-    res.status(500).json({ success: false, error: error.message });
+    console.error('[Recordings] Error stack:', error.stack);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message || 'Failed to start recording',
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 });
 
