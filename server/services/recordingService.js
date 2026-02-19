@@ -59,77 +59,31 @@ class RecordingService {
       const fileName = `recordings/${sessionId}/${sessionId}-${timestamp}.mp3`;
 
       // Start Egress recording (audio only, MP3)
-      // Format for LiveKit SDK v2.15.0
-      // The SDK's isEncodedOutputs checks for output.file but output is undefined
-      // This suggests the SDK might be checking a different property or the method signature is different
-      // Try passing output as a separate parameter or using a different structure
-      // Based on error, the SDK's getOutputParams calls isEncodedOutputs which checks for output.file
-      // Let's try with 'file' at root level AND 'output' to see which one works
-      const fileConfig = {
-        fileType: 1, // MP3 = 1
-        filepath: fileName, // Path within bucket
-        s3: {
-          accessKey: config.r2.accessKeyId,
-          secret: config.r2.secretAccessKey,
-          region: config.r2.region || 'auto',
-          endpoint: config.r2.endpoint,
-          bucket: config.r2.bucket,
-          forcePathStyle: true, // Required for R2 compatibility
-        },
-      };
-
-      const egressRequest = {
-        roomName: roomName,
-        layout: '', // Empty layout for audio-only
-        audioOnly: true,
-        audioCodec: 1, // MP3 = 1, OPUS = 2, AAC = 3
-        // Try both 'file' at root and 'output' to see which the SDK expects
-        file: fileConfig,
-        output: {
-          file: fileConfig,
-        },
-      };
-
-      console.log(`[RecordingService] Egress request (sanitized):`, JSON.stringify({
-        roomName: egressRequest.roomName,
-        layout: egressRequest.layout,
-        audioOnly: egressRequest.audioOnly,
-        audioCodec: egressRequest.audioCodec,
-        file: {
-          ...egressRequest.file,
-          s3: {
-            ...egressRequest.file.s3,
-            accessKey: '***',
-            secret: '***',
-          },
-        },
-        output: {
-          ...egressRequest.output,
-          file: {
-            ...egressRequest.output.file,
-            s3: {
-              ...egressRequest.output.file.s3,
-              accessKey: '***',
-              secret: '***',
-            },
-          },
-        },
-      }, null, 2));
-      
+      // Correct usage: startRoomCompositeEgress(roomName, options)
+      // NOT startRoomCompositeEgress(requestObject)
       console.log(`[RecordingService] Calling LiveKit egress API at: ${config.livekit.httpUrl}`);
       console.log(`[RecordingService] Room name: ${roomName}, File path: ${fileName}`);
       
-      // Debug: Log the actual request object structure
-      console.log(`[RecordingService] Request object keys:`, Object.keys(egressRequest));
-      console.log(`[RecordingService] Request has 'output':`, 'output' in egressRequest);
-      console.log(`[RecordingService] Request.output:`, egressRequest.output);
-      console.log(`[RecordingService] Request.output?.file:`, egressRequest.output?.file);
-      
-      // Use SDK classes for proper structure
       let egress;
       try {
-        // Try calling with the request as-is
-        egress = await this.egressClient.startRoomCompositeEgress(egressRequest);
+        // Correct method signature: startRoomCompositeEgress(roomName, options)
+        egress = await this.egressClient.startRoomCompositeEgress(
+          roomName,   // FIRST PARAM: room name as string
+          {
+            audioOnly: true,
+            file: {
+              filepath: fileName,
+              s3: {
+                accessKey: config.r2.accessKeyId,
+                secret: config.r2.secretAccessKey,
+                region: config.r2.region || 'auto',
+                endpoint: config.r2.endpoint,
+                bucket: config.r2.bucket,
+                forcePathStyle: true, // Required for R2 compatibility
+              },
+            },
+          }
+        );
       } catch (egressError) {
         console.error(`[RecordingService] Egress API call failed:`, {
           message: egressError.message,
@@ -142,6 +96,7 @@ class RecordingService {
         });
         throw egressError;
       }
+      
       const egressId = egress.egressId;
       console.log(`[RecordingService] Recording started with egress ID: ${egressId}`);
       
