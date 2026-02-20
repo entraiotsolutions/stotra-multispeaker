@@ -1,5 +1,7 @@
 // Server configuration
 require('dotenv').config();
+console.log('LIVEKIT_API_KEY:', process.env.LIVEKIT_API_KEY);
+console.log('LIVEKIT_API_SECRET:', process.env.LIVEKIT_API_SECRET);
 
 module.exports = {
   // LiveKit Configuration
