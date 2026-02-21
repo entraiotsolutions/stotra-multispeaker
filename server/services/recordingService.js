@@ -35,32 +35,14 @@ class RecordingService {
         throw new Error('R2 configuration is missing. Please set R2_ACCESS_KEY, R2_SECRET_KEY, R2_BUCKET, and R2_ENDPOINT environment variables.');
       }
 
-      // Check if room exists and get participants
-      let room;
+      // Get participants to find audio tracks
+      // LiveKit egress will fail automatically if room doesn't exist, so no need to check room manually
+      let participants;
       try {
-        room = await this.roomService.getRoom(roomName);
-      } catch (roomError) {
-        console.error(`[RecordingService] Error checking room:`, roomError);
-        throw new Error(`Failed to check room status: ${roomError.message}`);
-      }
-      
-      if (!room) {
-        throw new Error(`Room ${roomName} does not exist. Please ensure participants are connected to the room before starting recording.`);
-      }
-      
-      console.log(`[RecordingService] Room found: ${roomName}, participants: ${room.numParticipants || 0}`);
-      
-      // Get participants from the room
-      // The room object from getRoom() may include participants, but if not, list them separately
-      let participants = room.participants;
-      
-      if (!participants || participants.length === 0) {
-        try {
-          participants = await this.roomService.listParticipants(roomName);
-        } catch (participantError) {
-          console.error(`[RecordingService] Error listing participants:`, participantError);
-          throw new Error(`Failed to list participants: ${participantError.message}`);
-        }
+        participants = await this.roomService.listParticipants(roomName);
+      } catch (participantError) {
+        console.error(`[RecordingService] Error listing participants:`, participantError);
+        throw new Error(`Failed to list participants: ${participantError.message}`);
       }
       
       if (!participants || participants.length === 0) {
