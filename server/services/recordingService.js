@@ -64,28 +64,42 @@ class RecordingService {
       console.log(`[RecordingService] Calling LiveKit egress API at: ${config.livekit.httpUrl}`);
       console.log(`[RecordingService] Room name: ${roomName}, File path: ${fileName}`);
       
+      // Prepare egress options
+      const egressOptions = {
+        audioOnly: true,  // Audio-only mode (no video, reduces CPU usage)
+        file: {
+          filepath: fileName,
+          s3: {
+            accessKey: config.r2.accessKeyId,
+            secret: config.r2.secretAccessKey,
+            region: config.r2.region || 'auto',
+            endpoint: config.r2.endpoint,
+            bucket: config.r2.bucket,
+            forcePathStyle: true, // Required for R2 compatibility
+          },
+        },
+      };
+      
+      console.log(`[RecordingService] Egress options:`, JSON.stringify({
+        audioOnly: egressOptions.audioOnly,
+        file: {
+          filepath: egressOptions.file.filepath,
+          s3: {
+            endpoint: egressOptions.file.s3.endpoint,
+            bucket: egressOptions.file.s3.bucket,
+            region: egressOptions.file.s3.region,
+            // Don't log credentials
+          },
+        },
+      }, null, 2));
+      
       let egress;
       try {
         // Correct method signature: startRoomCompositeEgress(roomName, options)
         // Audio-only recording to reduce CPU usage (no video preset needed)
         egress = await this.egressClient.startRoomCompositeEgress(
           roomName,   // FIRST PARAM: room name as string
-          {
-            audioOnly: true,  // Audio-only mode (no video, reduces CPU usage)
-            fileOutputs: [
-              {
-                filepath: fileName,
-                s3: {
-                  accessKey: config.r2.accessKeyId,
-                  secret: config.r2.secretAccessKey,
-                  region: config.r2.region || 'auto',
-                  endpoint: config.r2.endpoint,
-                  bucket: config.r2.bucket,
-                  forcePathStyle: true, // Required for R2 compatibility
-                },
-              },
-            ],
-          }
+          egressOptions
         );
       } catch (egressError) {
         console.error(`[RecordingService] Egress API call failed:`, {
