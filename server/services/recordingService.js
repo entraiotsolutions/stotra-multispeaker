@@ -1,6 +1,11 @@
 // Recording Service - Handles LiveKit Egress API for recording
 
-const { RoomServiceClient, EgressClient } = require('livekit-server-sdk');
+const { 
+  RoomServiceClient, 
+  EgressClient, 
+  EncodedFileOutput, 
+  TrackCompositeEgressRequest 
+} = require('livekit-server-sdk');
 const config = require('../config');
 const sessionService = require('./sessionService');
 const recordingStorage = require('./recordingStorage');
@@ -21,7 +26,7 @@ class RecordingService {
 
   /**
    * Start recording a room (audio only, MP3)
-   * Uses startRoomCompositeEgress with audioOnly: true - works on 2 CPU
+   * Uses TrackCompositeEgressRequest - works on 2 CPU (no Chromium/PulseAudio needed)
    * @param {string} roomName - The room name to record
    * @param {string} sessionId - The session ID
    * @returns {Promise<string>} Egress ID
@@ -42,28 +47,35 @@ class RecordingService {
       console.log(`[RecordingService] Calling LiveKit egress API at: ${config.livekit.httpUrl}`);
       console.log(`[RecordingService] Room name: ${roomName}, File path: ${fileName}`);
       
-      // Start room composite egress (audio only - works on 2 CPU)
-      // LiveKit will handle recording even if tracks aren't published yet
-      const egress = await this.egressClient.startRoomCompositeEgress(
-        roomName,
-        {
-          audioOnly: true,
-          file: {
-            filepath: fileName,
-            s3: {
-              accessKey: config.r2.accessKeyId,
-              secret: config.r2.secretAccessKey,
-              region: config.r2.region || 'auto',
-              endpoint: config.r2.endpoint,
-              bucket: config.r2.bucket,
-              forcePathStyle: true, // Required for R2 compatibility
-            },
-          },
-        }
-      );
+      // Create EncodedFileOutput with R2 S3 configuration
+      const fileOutput = new EncodedFileOutput({
+        fileType: 'MP3',
+        filepath: fileName,
+        s3: {
+          accessKey: config.r2.accessKeyId,
+          secret: config.r2.secretAccessKey,
+          region: config.r2.region || 'auto',
+          endpoint: config.r2.endpoint,
+          bucket: config.r2.bucket,
+          forcePathStyle: true, // Required for R2 compatibility
+        },
+      });
+
+      // Create TrackCompositeEgressRequest
+      const request = new TrackCompositeEgressRequest({
+        roomName: roomName,
+        audioTrackName: 'microphone', // Record microphone tracks (or undefined to record all audio)
+        output: {
+          file: fileOutput,
+        },
+      });
+
+      // Start track composite egress (no Chromium/PulseAudio needed - works on 2 CPU)
+      const egress = await this.egressClient.startTrackCompositeEgress(request);
       
       const egressId = egress.egressId;
-      console.log(`[RecordingService] Recording started with egress ID: ${egressId}`);
+      console.log(`[RecordingService] ✅ Recording started with egress ID: ${egressId}`);
+      console.log(`[RecordingService] Using TrackCompositeEgress (lightweight, no Chromium)`);
       
       // Update session
       sessionService.setRecording(sessionId, egressId);
