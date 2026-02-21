@@ -67,21 +67,24 @@ class RecordingService {
       let egress;
       try {
         // Correct method signature: startRoomCompositeEgress(roomName, options)
+        // Audio-only recording to reduce CPU usage (no video preset needed)
         egress = await this.egressClient.startRoomCompositeEgress(
           roomName,   // FIRST PARAM: room name as string
           {
-            audioOnly: true,
-            file: {
-              filepath: fileName,
-              s3: {
-                accessKey: config.r2.accessKeyId,
-                secret: config.r2.secretAccessKey,
-                region: config.r2.region || 'auto',
-                endpoint: config.r2.endpoint,
-                bucket: config.r2.bucket,
-                forcePathStyle: true, // Required for R2 compatibility
+            audioOnly: true,  // Audio-only mode (no video, reduces CPU usage)
+            fileOutputs: [
+              {
+                filepath: fileName,
+                s3: {
+                  accessKey: config.r2.accessKeyId,
+                  secret: config.r2.secretAccessKey,
+                  region: config.r2.region || 'auto',
+                  endpoint: config.r2.endpoint,
+                  bucket: config.r2.bucket,
+                  forcePathStyle: true, // Required for R2 compatibility
+                },
               },
-            },
+            ],
           }
         );
       } catch (egressError) {
