@@ -61,13 +61,22 @@ class RecordingService {
         },
       });
 
-      // Create TrackCompositeEgressRequest
-      const request = new TrackCompositeEgressRequest({
+      // Create TrackCompositeEgressRequest as plain object
+      // The SDK expects output.file to be accessible
+      const request = {
         roomName: roomName,
         audioTrackName: 'microphone', // Record microphone tracks (or undefined to record all audio)
         output: {
           file: fileOutput,
         },
+      };
+
+      console.log(`[RecordingService] Request structure:`, {
+        roomName: request.roomName,
+        audioTrackName: request.audioTrackName,
+        hasOutput: !!request.output,
+        hasFile: !!(request.output && request.output.file),
+        fileOutputType: request.output?.file?.constructor?.name,
       });
 
       // Start track composite egress (no Chromium/PulseAudio needed - works on 2 CPU)
