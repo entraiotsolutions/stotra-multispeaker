@@ -20,7 +20,8 @@ class RecordingService {
   }
 
   /**
-   * Start recording a room (audio only, MP3)
+   * Start recording a room (audio track egress - works on 2 CPU)
+   * Records individual audio tracks instead of room composite to reduce CPU usage
    * @param {string} roomName - The room name to record
    * @param {string} sessionId - The session ID
    * @returns {Promise<string>} Egress ID
@@ -34,75 +35,87 @@ class RecordingService {
         throw new Error('R2 configuration is missing. Please set R2_ACCESS_KEY, R2_SECRET_KEY, R2_BUCKET, and R2_ENDPOINT environment variables.');
       }
 
-      // Check if room exists and is active
-      let rooms;
+      // Check if room exists and get participants
+      let room;
       try {
-        rooms = await this.roomService.listRooms([roomName]);
+        room = await this.roomService.getRoom(roomName);
       } catch (roomError) {
         console.error(`[RecordingService] Error checking room:`, roomError);
         throw new Error(`Failed to check room status: ${roomError.message}`);
       }
       
-      if (rooms.length === 0) {
+      if (!room) {
         throw new Error(`Room ${roomName} does not exist. Please ensure participants are connected to the room before starting recording.`);
       }
       
-      const room = rooms[0];
       console.log(`[RecordingService] Room found: ${roomName}, participants: ${room.numParticipants || 0}`);
       
-      if (room.numParticipants === 0) {
-        console.warn(`[RecordingService] Warning: Room ${roomName} has no participants. Recording may not capture any audio.`);
+      // Get participants from the room
+      // The room object from getRoom() may include participants, but if not, list them separately
+      let participants = room.participants;
+      
+      if (!participants || participants.length === 0) {
+        try {
+          participants = await this.roomService.listParticipants(roomName);
+        } catch (participantError) {
+          console.error(`[RecordingService] Error listing participants:`, participantError);
+          throw new Error(`Failed to list participants: ${participantError.message}`);
+        }
+      }
+      
+      if (!participants || participants.length === 0) {
+        throw new Error(`No participants found in room ${roomName}. Please ensure participants are connected before starting recording.`);
+      }
+      
+      console.log(`[RecordingService] Found ${participants.length} participant(s) in room`);
+      
+      // Find the first participant with an audio track
+      let audioTrackSid = null;
+      for (const participant of participants) {
+        // Check if participant has tracks property
+        if (participant.tracks && Array.isArray(participant.tracks)) {
+          const audioTrack = participant.tracks.find(track => track.kind === 'audio' || track.type === 'audio');
+          if (audioTrack) {
+            audioTrackSid = audioTrack.sid;
+            console.log(`[RecordingService] Found audio track: ${audioTrackSid} from participant: ${participant.identity}`);
+            break;
+          }
+        }
+      }
+      
+      if (!audioTrackSid) {
+        throw new Error(`No audio track found in room ${roomName}. Please ensure participants are publishing audio tracks.`);
       }
 
       // Generate R2 file path
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const fileName = `recordings/${sessionId}/${sessionId}-${timestamp}.mp3`;
 
-      // Start Egress recording (audio only, MP3)
-      // Correct usage: startRoomCompositeEgress(roomName, options)
-      // NOT startRoomCompositeEgress(requestObject)
-      console.log(`[RecordingService] Calling LiveKit egress API at: ${config.livekit.httpUrl}`);
-      console.log(`[RecordingService] Room name: ${roomName}, File path: ${fileName}`);
+      console.log(`[RecordingService] Calling LiveKit track egress API at: ${config.livekit.httpUrl}`);
+      console.log(`[RecordingService] Room name: ${roomName}, Track SID: ${audioTrackSid}, File path: ${fileName}`);
       
-      // Prepare egress options
-      const egressOptions = {
-        audioOnly: true,  // Audio-only mode (no video, reduces CPU usage)
-        file: {
-          filepath: fileName,
-          s3: {
-            accessKey: config.r2.accessKeyId,
-            secret: config.r2.secretAccessKey,
-            region: config.r2.region || 'auto',
-            endpoint: config.r2.endpoint,
-            bucket: config.r2.bucket,
-            forcePathStyle: true, // Required for R2 compatibility
-          },
-        },
-      };
-      
-      console.log(`[RecordingService] Egress options:`, JSON.stringify({
-        audioOnly: egressOptions.audioOnly,
-        file: {
-          filepath: egressOptions.file.filepath,
-          s3: {
-            endpoint: egressOptions.file.s3.endpoint,
-            bucket: egressOptions.file.s3.bucket,
-            region: egressOptions.file.s3.region,
-            // Don't log credentials
-          },
-        },
-      }, null, 2));
-      
+      // Start track egress (records individual audio track - works on 2 CPU)
       let egress;
       try {
-        // Correct method signature: startRoomCompositeEgress(roomName, options)
-        // Audio-only recording to reduce CPU usage (no video preset needed)
-        egress = await this.egressClient.startRoomCompositeEgress(
-          roomName,   // FIRST PARAM: room name as string
-          egressOptions
+        egress = await this.egressClient.startTrackEgress(
+          roomName,
+          audioTrackSid,
+          {
+            file: {
+              filepath: fileName,
+              s3: {
+                accessKey: config.r2.accessKeyId,
+                secret: config.r2.secretAccessKey,
+                region: config.r2.region || 'auto',
+                endpoint: config.r2.endpoint,
+                bucket: config.r2.bucket,
+                forcePathStyle: true, // Required for R2 compatibility
+              },
+            },
+          }
         );
       } catch (egressError) {
-        console.error(`[RecordingService] Egress API call failed:`, {
+        console.error(`[RecordingService] Track egress API call failed:`, {
           message: egressError.message,
           name: egressError.name,
           code: egressError.code,
