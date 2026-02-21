@@ -42,6 +42,11 @@ router.post('/livekit', async (req, res) => {
         await handleEgressStarted(event);
         break;
 
+      case 'egress_failed':
+        // Handle failed egress (may also be sent as egress_ended with failed status)
+        await handleEgressEnded(event);
+        break;
+
       default:
         console.log(`[Webhooks] Unhandled event type: ${event.event}`);
     }
