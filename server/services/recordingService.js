@@ -98,22 +98,19 @@ class RecordingService {
         },
       });
 
-      // Create TrackCompositeEgressRequest with correct structure
-      // SDK expects: outputs (plural) not output (singular)
+      // Create TrackCompositeEgressRequest with correct structure for SDK v2.15.0
+      // Field names: audioTrack (not audioTrackName), file (not outputs.file)
       const request = new TrackCompositeEgressRequest({
         roomName: roomName,
-        audioTrackName: audioTrackName, // Use SID from track
-        outputs: {
-          file: fileOutput,
-        },
+        audioTrack: audioTrackName, // Use SID from track - field name is 'audioTrack' not 'audioTrackName'
+        file: fileOutput, // Field name is 'file' not 'outputs.file'
       });
 
       console.log(`[RecordingService] Request structure:`, {
         roomName: request.roomName,
-        audioTrackName: request.audioTrackName,
-        hasOutputs: !!request.outputs,
-        hasFile: !!(request.outputs && request.outputs.file),
-        filepath: request.outputs?.file?.filepath,
+        audioTrack: request.audioTrack,
+        hasFile: !!request.file,
+        filepath: request.file?.filepath,
         requestType: request.constructor?.name,
       });
 
