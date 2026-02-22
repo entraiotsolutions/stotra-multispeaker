@@ -2,10 +2,7 @@
 
 const { 
   RoomServiceClient, 
-  EgressClient, 
-  EncodedFileOutput, 
-  TrackCompositeEgressRequest,
-  TrackType
+  EgressClient
 } = require('livekit-server-sdk');
 const config = require('../config');
 const sessionService = require('./sessionService');
@@ -27,7 +24,7 @@ class RecordingService {
 
   /**
    * Start recording a room (audio only, MP3)
-   * Uses TrackCompositeEgressRequest - works on 2 CPU (no Chromium/PulseAudio needed)
+   * Uses RoomCompositeEgress to record the entire room
    * @param {string} roomName - The room name to record
    * @param {string} sessionId - The session ID
    * @returns {Promise<string>} Egress ID
@@ -41,83 +38,36 @@ class RecordingService {
         throw new Error('R2 configuration is missing. Please set R2_ACCESS_KEY, R2_SECRET_KEY, R2_BUCKET, and R2_ENDPOINT environment variables.');
       }
 
-      // Fetch participants to get the actual audio track name
-      console.log(`[RecordingService] Fetching participants for room: ${roomName}`);
-      const participants = await this.roomService.listParticipants(roomName);
-      
-      if (!participants || participants.length === 0) {
-        throw new Error(`No participants found in room ${roomName}. Please ensure participants have joined and are publishing audio.`);
-      }
-
-      // Log FULL participant structure for debugging
-      console.log(`[RecordingService] Participant tracks FULL:`, JSON.stringify(participants, null, 2));
-
-      // Find the first active audio track using flatMap with detailed logging
-      // Note: In LiveKit server SDK, AUDIO = 0, VIDEO = 1
-      const audioTrack = participants
-        .flatMap(p => p.tracks || [])
-        .find(t => {
-          // Log every track for debugging
-          console.log(`[RecordingService] Track debug:`, {
-            name: t.name,
-            type: t.type,
-            typeName: t.type === 0 ? 'AUDIO' : t.type === 1 ? 'VIDEO' : 'UNKNOWN',
-            muted: t.muted,
-            sid: t.sid,
-          });
-          // AUDIO type is 0, not TrackType.AUDIO (which might be 1)
-          return t.type === 0 && t.muted === false;
-        });
-
-      if (!audioTrack || !audioTrack.sid) {
-        throw new Error(`No active audio track found in room ${roomName}. Please ensure participants are publishing audio tracks.`);
-      }
-
-      // Use SID instead of name since track name is often empty string
-      const audioTrackSid = audioTrack.sid;
-      console.log(`[RecordingService] ✅ Found audio track: SID=${audioTrackSid}, name="${audioTrack.name}", type=${audioTrack.type}, muted=${audioTrack.muted}`);
-
       // Generate R2 file path
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const fileName = `recordings/${sessionId}/${sessionId}-${timestamp}.mp3`;
 
       console.log(`[RecordingService] Calling LiveKit egress API at: ${config.livekit.httpUrl}`);
-      console.log(`[RecordingService] Room name: ${roomName}, Audio track: ${audioTrackSid}, File path: ${fileName}`);
+      console.log(`[RecordingService] Room name: ${roomName}, File path: ${fileName}`);
       
-      // Create request for startTrackEgress() - records a single track (not composite)
-      // TrackEgressRequest does NOT accept roomName - only trackId and output
+      // Create RoomCompositeEgress request
       const request = {
-        trackId: audioTrackSid, // Only trackId (no roomName needed)
-        output: {
-          file: {
-            fileType: 'MP3',
-            filepath: fileName,
-            s3: {
-              accessKey: config.r2.accessKeyId,
-              secret: config.r2.secretAccessKey,
-              region: config.r2.region || 'auto',
-              endpoint: config.r2.endpoint,
-              bucket: config.r2.bucket,
-              forcePathStyle: true, // Required for R2 compatibility
-            },
+        roomName: roomName,
+        audioOnly: true,
+        fileOutputs: [{
+          fileType: 'MP3',
+          filepath: fileName,
+          s3: {
+            accessKey: config.r2.accessKeyId,
+            secret: config.r2.secretAccessKey,
+            region: config.r2.region || 'auto',
+            endpoint: config.r2.endpoint,
+            bucket: config.r2.bucket,
+            forcePathStyle: true,
           },
-        },
+        }],
       };
 
-      // Debug check immediately after construction
-      console.log(`[RecordingService] FINAL DEBUG:`, {
-        trackId: request.trackId,
-        hasOutput: !!request.output,
-        hasFile: !!(request.output && request.output.file),
-        filepath: request.output?.file?.filepath,
-      });
-
-      // Start track egress (single track, no composite, no Chromium/PulseAudio needed)
-      const egress = await this.egressClient.startTrackEgress(request);
+      // Start room composite egress
+      const egress = await this.egressClient.startRoomCompositeEgress(request);
       
       const egressId = egress.egressId;
       console.log(`[RecordingService] ✅ Recording started with egress ID: ${egressId}`);
-      console.log(`[RecordingService] Using TrackCompositeEgress (lightweight, no Chromium)`);
       
       // Update session
       sessionService.setRecording(sessionId, egressId);
