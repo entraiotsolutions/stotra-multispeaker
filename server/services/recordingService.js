@@ -85,10 +85,9 @@ class RecordingService {
       console.log(`[RecordingService] Room name: ${roomName}, Audio track: ${audioTrackSid}, File path: ${fileName}`);
       
       // Create request for startTrackEgress() - records a single track (not composite)
-      // Use startTrackEgress() for single audio track (not startTrackCompositeEgress)
+      // TrackEgressRequest does NOT accept roomName - only trackId and output
       const request = {
-        roomName: roomName,
-        trackId: audioTrackSid, // Use trackId (not audioTrack) for startTrackEgress
+        trackId: audioTrackSid, // Only trackId (no roomName needed)
         output: {
           file: {
             fileType: 'MP3',
@@ -107,7 +106,6 @@ class RecordingService {
 
       // Debug check immediately after construction
       console.log(`[RecordingService] FINAL DEBUG:`, {
-        roomName: request.roomName,
         trackId: request.trackId,
         hasOutput: !!request.output,
         hasFile: !!(request.output && request.output.file),
