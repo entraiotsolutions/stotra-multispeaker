@@ -23,34 +23,26 @@ class RecordingService {
   }
 
   /**
-   * Start recording a room (audio only, MP3)
+   * Start recording a room (MP4)
    * Uses RoomCompositeEgress to record the entire room
+   * Note: RoomCompositeEgress only supports MP4, not MP3
    * @param {string} roomName - The room name to record
    * @param {string} sessionId - The session ID
    * @returns {Promise<string>} Egress ID
    */
   async startRecording(roomName, sessionId) {
     try {
-      console.log(`[RecordingService] Starting recording for room: ${roomName}, session: ${sessionId}`);
+      console.log(`[RecordingService] Starting recording for room: ${roomName}`);
 
-      // Validate R2 configuration
-      if (!config.r2.accessKeyId || !config.r2.secretAccessKey || !config.r2.bucket || !config.r2.endpoint) {
-        throw new Error('R2 configuration is missing. Please set R2_ACCESS_KEY, R2_SECRET_KEY, R2_BUCKET, and R2_ENDPOINT environment variables.');
-      }
-
-      // Generate R2 file path
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const fileName = `recordings/${sessionId}/${sessionId}-${timestamp}.mp3`;
+      const fileName = `recordings/${sessionId}/${sessionId}-${timestamp}.mp4`;
 
-      console.log(`[RecordingService] Calling LiveKit egress API at: ${config.livekit.httpUrl}`);
-      console.log(`[RecordingService] Room name: ${roomName}, File path: ${fileName}`);
-      
-      // Create RoomCompositeEgress request
       const request = {
         roomName: roomName,
-        audioOnly: true,
-        fileOutputs: [{
-          fileType: 'MP3',
+        // Required for RoomComposite
+        layout: 'speaker',
+        file: {
+          fileType: 'MP4',
           filepath: fileName,
           s3: {
             accessKey: config.r2.accessKeyId,
@@ -60,30 +52,20 @@ class RecordingService {
             bucket: config.r2.bucket,
             forcePathStyle: true,
           },
-        }],
+        },
       };
 
-      // Start room composite egress
+      console.log("FINAL REQUEST:", request);
+
       const egress = await this.egressClient.startRoomCompositeEgress(request);
-      
-      const egressId = egress.egressId;
-      console.log(`[RecordingService] ✅ Recording started with egress ID: ${egressId}`);
-      
-      // Update session
-      sessionService.setRecording(sessionId, egressId);
-      
-      return egressId;
+
+      console.log("✅ Egress started:", egress.egressId);
+
+      sessionService.setRecording(sessionId, egress.egressId);
+
+      return egress.egressId;
     } catch (error) {
-      console.error(`[RecordingService] Error starting recording:`, error);
-      console.error(`[RecordingService] Error details:`, {
-        message: error.message,
-        stack: error.stack,
-        name: error.name,
-        code: error.code,
-        status: error.status,
-        response: error.response ? (typeof error.response === 'string' ? error.response : JSON.stringify(error.response)) : undefined,
-      });
-      // Re-throw with more context
+      console.error("START RECORDING ERROR:", error);
       throw new Error(`Failed to start recording: ${error.message}`);
     }
   }
