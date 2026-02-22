@@ -53,6 +53,7 @@ class RecordingService {
       console.log(`[RecordingService] Participant tracks FULL:`, JSON.stringify(participants, null, 2));
 
       // Find the first active audio track using flatMap with detailed logging
+      // Note: In LiveKit server SDK, AUDIO = 0, VIDEO = 1
       const audioTrack = participants
         .flatMap(p => p.tracks || [])
         .find(t => {
@@ -60,20 +61,21 @@ class RecordingService {
           console.log(`[RecordingService] Track debug:`, {
             name: t.name,
             type: t.type,
-            typeName: t.type === TrackType.AUDIO ? 'AUDIO' : t.type === TrackType.VIDEO ? 'VIDEO' : 'UNKNOWN',
+            typeName: t.type === 0 ? 'AUDIO' : t.type === 1 ? 'VIDEO' : 'UNKNOWN',
             muted: t.muted,
             sid: t.sid,
-            state: t.state,
           });
-          return t.type === TrackType.AUDIO && !t.muted;
+          // AUDIO type is 0, not TrackType.AUDIO (which might be 1)
+          return t.type === 0 && t.muted === false;
         });
 
-      if (!audioTrack || !audioTrack.name) {
+      if (!audioTrack || !audioTrack.sid) {
         throw new Error(`No active audio track found in room ${roomName}. Please ensure participants are publishing audio tracks.`);
       }
 
-      const audioTrackName = audioTrack.name;
-      console.log(`[RecordingService] ✅ Found audio track: ${audioTrackName} (type: ${audioTrack.type}, muted: ${audioTrack.muted})`);
+      // Use SID instead of name since track name is often empty string
+      const audioTrackName = audioTrack.sid;
+      console.log(`[RecordingService] ✅ Found audio track: SID=${audioTrackName}, name="${audioTrack.name}", type=${audioTrack.type}, muted=${audioTrack.muted}`);
 
       // Generate R2 file path
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
