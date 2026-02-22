@@ -2,7 +2,9 @@
 
 const { 
   RoomServiceClient, 
-  EgressClient
+  EgressClient,
+  EncodedFileOutput,
+  RoomCompositeEgressRequest
 } = require('livekit-server-sdk');
 const config = require('../config');
 const sessionService = require('./sessionService');
@@ -32,30 +34,33 @@ class RecordingService {
    */
   async startRecording(roomName, sessionId) {
     try {
-      console.log(`[RecordingService] Starting recording for room: ${roomName}`);
+      console.log(`Starting recording for room: ${roomName}`);
 
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const fileName = `recordings/${sessionId}/${sessionId}-${timestamp}.mp4`;
 
-      const request = {
-        roomName: roomName,
-        // Required for RoomComposite
-        layout: 'speaker',
-        file: {
-          fileType: 'MP4',
-          filepath: fileName,
-          s3: {
-            accessKey: config.r2.accessKeyId,
-            secret: config.r2.secretAccessKey,
-            region: config.r2.region || 'auto',
-            endpoint: config.r2.endpoint,
-            bucket: config.r2.bucket,
-            forcePathStyle: true,
-          },
+      // ✅ MUST use EncodedFileOutput class
+      const output = new EncodedFileOutput({
+        fileType: 'MP4',
+        filepath: fileName,
+        s3: {
+          accessKey: config.r2.accessKeyId,
+          secret: config.r2.secretAccessKey,
+          region: config.r2.region || 'auto',
+          endpoint: config.r2.endpoint,
+          bucket: config.r2.bucket,
+          forcePathStyle: true,
         },
-      };
+      });
 
-      console.log("FINAL REQUEST:", request);
+      // ✅ MUST use RoomCompositeEgressRequest class
+      const request = new RoomCompositeEgressRequest({
+        roomName: roomName,
+        layout: 'speaker',
+        file: output,   // ⚠️ NOT fileOutputs
+      });
+
+      console.log("FINAL REQUEST OK");
 
       const egress = await this.egressClient.startRoomCompositeEgress(request);
 
