@@ -84,36 +84,35 @@ class RecordingService {
       console.log(`[RecordingService] Calling LiveKit egress API at: ${config.livekit.httpUrl}`);
       console.log(`[RecordingService] Room name: ${roomName}, Audio track: ${audioTrackSid}, File path: ${fileName}`);
       
-      // Create EncodedFileOutput with R2 S3 configuration
-      const fileOutput = new EncodedFileOutput({
-        fileType: 'MP3',
-        filepath: fileName,
-        s3: {
-          accessKey: config.r2.accessKeyId,
-          secret: config.r2.secretAccessKey,
-          region: config.r2.region || 'auto',
-          endpoint: config.r2.endpoint,
-          bucket: config.r2.bucket,
-          forcePathStyle: true, // Required for R2 compatibility
-        },
-      });
-
-      // Create TrackCompositeEgressRequest with correct structure for SDK v2.15.0
-      // Field names: audioTrack (not audioTrackName), file (not outputs.file)
-      // Use audioTrack.sid directly to ensure it's set correctly
-      const request = new TrackCompositeEgressRequest({
+      // Create plain object request for SDK v2.15.0
+      // SDK v2.15 expects: fileOutputs (array), not file (singular)
+      // Do NOT use class constructors - use plain object
+      const request = {
         roomName: roomName,
-        audioTrack: audioTrack.sid, // Use SID directly from track object
-        file: fileOutput, // Field name is 'file' not 'outputs.file'
-      });
+        audioTrack: audioTrackSid, // Must be SID
+        fileOutputs: [
+          {
+            fileType: 'MP3',
+            filepath: fileName,
+            s3: {
+              accessKey: config.r2.accessKeyId,
+              secret: config.r2.secretAccessKey,
+              region: config.r2.region || 'auto',
+              endpoint: config.r2.endpoint,
+              bucket: config.r2.bucket,
+              forcePathStyle: true, // Required for R2 compatibility
+            },
+          },
+        ],
+      };
 
       // Debug check immediately after construction
       console.log(`[RecordingService] DEBUG CHECK:`, {
         roomName: request.roomName,
         audioTrack: request.audioTrack,
-        hasFile: !!request.file,
-        filepath: request.file?.filepath,
-        requestType: request.constructor?.name,
+        hasFileOutputs: !!request.fileOutputs,
+        fileOutputsLength: request.fileOutputs?.length,
+        filepath: request.fileOutputs?.[0]?.filepath,
       });
 
       // Start track composite egress (no Chromium/PulseAudio needed - works on 2 CPU)
