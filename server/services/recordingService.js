@@ -4,7 +4,8 @@ const {
   RoomServiceClient, 
   EgressClient, 
   EncodedFileOutput, 
-  TrackCompositeEgressRequest 
+  TrackCompositeEgressRequest,
+  TrackType
 } = require('livekit-server-sdk');
 const config = require('../config');
 const sessionService = require('./sessionService');
@@ -48,26 +49,31 @@ class RecordingService {
         throw new Error(`No participants found in room ${roomName}. Please ensure participants have joined and are publishing audio.`);
       }
 
-      // Find the first active audio track using flatMap as per user's example
-      const AUDIO_TYPE = 1;
+      // Log FULL participant structure for debugging
+      console.log(`[RecordingService] Participant tracks FULL:`, JSON.stringify(participants, null, 2));
 
+      // Find the first active audio track using flatMap with detailed logging
       const audioTrack = participants
         .flatMap(p => p.tracks || [])
-        .find(t => t.type === AUDIO_TYPE && t.muted === false);
+        .find(t => {
+          // Log every track for debugging
+          console.log(`[RecordingService] Track debug:`, {
+            name: t.name,
+            type: t.type,
+            typeName: t.type === TrackType.AUDIO ? 'AUDIO' : t.type === TrackType.VIDEO ? 'VIDEO' : 'UNKNOWN',
+            muted: t.muted,
+            sid: t.sid,
+            state: t.state,
+          });
+          return t.type === TrackType.AUDIO && !t.muted;
+        });
 
       if (!audioTrack || !audioTrack.name) {
-        // Log participant structure for debugging
-        console.log(`[RecordingService] Available participants:`, participants.length);
-        console.log(`[RecordingService] Participant tracks:`, participants.map(p => ({
-          identity: p.identity,
-          tracksCount: p.tracks?.length || 0,
-          tracks: p.tracks?.map(t => ({ name: t.name, type: t.type, state: t.state })) || [],
-        })));
         throw new Error(`No active audio track found in room ${roomName}. Please ensure participants are publishing audio tracks.`);
       }
 
       const audioTrackName = audioTrack.name;
-      console.log(`[RecordingService] Found audio track: ${audioTrackName}`);
+      console.log(`[RecordingService] ✅ Found audio track: ${audioTrackName} (type: ${audioTrack.type}, muted: ${audioTrack.muted})`);
 
       // Generate R2 file path
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
