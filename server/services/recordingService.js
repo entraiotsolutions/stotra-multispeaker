@@ -49,9 +49,11 @@ class RecordingService {
       }
 
       // Find the first active audio track using flatMap as per user's example
+      const AUDIO_TYPE = 1;
+
       const audioTrack = participants
         .flatMap(p => p.tracks || [])
-        .find(t => t.type === 'AUDIO' && t.state === 'ACTIVE');
+        .find(t => t.type === AUDIO_TYPE && t.muted === false);
 
       if (!audioTrack || !audioTrack.name) {
         // Log participant structure for debugging
