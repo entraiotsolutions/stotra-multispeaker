@@ -40,46 +40,67 @@ class RecordingService {
         throw new Error('R2 configuration is missing. Please set R2_ACCESS_KEY, R2_SECRET_KEY, R2_BUCKET, and R2_ENDPOINT environment variables.');
       }
 
+      // Fetch participants to get the actual audio track name
+      console.log(`[RecordingService] Fetching participants for room: ${roomName}`);
+      const participants = await this.roomService.listParticipants(roomName);
+      
+      if (!participants || participants.length === 0) {
+        throw new Error(`No participants found in room ${roomName}. Please ensure participants have joined and are publishing audio.`);
+      }
+
+      // Find the first active audio track using flatMap as per user's example
+      const audioTrack = participants
+        .flatMap(p => p.tracks || [])
+        .find(t => t.type === 'AUDIO' && t.state === 'ACTIVE');
+
+      if (!audioTrack || !audioTrack.name) {
+        // Log participant structure for debugging
+        console.log(`[RecordingService] Available participants:`, participants.length);
+        console.log(`[RecordingService] Participant tracks:`, participants.map(p => ({
+          identity: p.identity,
+          tracksCount: p.tracks?.length || 0,
+          tracks: p.tracks?.map(t => ({ name: t.name, type: t.type, state: t.state })) || [],
+        })));
+        throw new Error(`No active audio track found in room ${roomName}. Please ensure participants are publishing audio tracks.`);
+      }
+
+      const audioTrackName = audioTrack.name;
+      console.log(`[RecordingService] Found audio track: ${audioTrackName}`);
+
       // Generate R2 file path
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const fileName = `recordings/${sessionId}/${sessionId}-${timestamp}.mp3`;
 
       console.log(`[RecordingService] Calling LiveKit egress API at: ${config.livekit.httpUrl}`);
-      console.log(`[RecordingService] Room name: ${roomName}, File path: ${fileName}`);
+      console.log(`[RecordingService] Room name: ${roomName}, Audio track: ${audioTrackName}, File path: ${fileName}`);
       
-      // Create EncodedFileOutput with R2 S3 configuration
-      const fileOutput = new EncodedFileOutput({
-        fileType: 'MP3',
-        filepath: fileName,
-        s3: {
-          accessKey: config.r2.accessKeyId,
-          secret: config.r2.secretAccessKey,
-          region: config.r2.region || 'auto',
-          endpoint: config.r2.endpoint,
-          bucket: config.r2.bucket,
-          forcePathStyle: true, // Required for R2 compatibility
-        },
-      });
-
-      // Create TrackCompositeEgressRequest using class constructor
-      const request = new TrackCompositeEgressRequest({
+      // Create request with correct structure for TrackCompositeEgress
+      // Use plain object with output.file structure (not file_outputs)
+      const request = {
         roomName: roomName,
-        audioTrackName: 'microphone', // Record microphone tracks (or undefined to record all audio)
-      });
-      
-      // Set output.file directly - SDK expects output.file structure
-      if (!request.output) {
-        request.output = {};
-      }
-      request.output.file = fileOutput;
+        audioTrackName: audioTrackName, // MUST be defined - fetched from participants
+        output: {
+          file: {
+            fileType: 'MP3',
+            filepath: fileName,
+            s3: {
+              accessKey: config.r2.accessKeyId,
+              secret: config.r2.secretAccessKey,
+              region: config.r2.region || 'auto',
+              endpoint: config.r2.endpoint,
+              bucket: config.r2.bucket,
+              forcePathStyle: true, // Required for R2 compatibility
+            },
+          },
+        },
+      };
 
       console.log(`[RecordingService] Request structure:`, {
         roomName: request.roomName,
         audioTrackName: request.audioTrackName,
         hasOutput: !!request.output,
         hasFile: !!(request.output && request.output.file),
-        fileOutputType: request.output?.file?.constructor?.name,
-        requestType: request.constructor?.name,
+        filepath: request.output?.file?.filepath,
       });
 
       // Start track composite egress (no Chromium/PulseAudio needed - works on 2 CPU)
