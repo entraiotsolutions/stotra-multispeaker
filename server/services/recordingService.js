@@ -84,14 +84,13 @@ class RecordingService {
       console.log(`[RecordingService] Calling LiveKit egress API at: ${config.livekit.httpUrl}`);
       console.log(`[RecordingService] Room name: ${roomName}, Audio track: ${audioTrackSid}, File path: ${fileName}`);
       
-      // Create plain object request for SDK v2.15.0
-      // SDK v2.15 expects: fileOutputs (array), not file (singular)
-      // Do NOT use class constructors - use plain object
+      // Create request for startTrackEgress() - records a single track (not composite)
+      // Use startTrackEgress() for single audio track (not startTrackCompositeEgress)
       const request = {
         roomName: roomName,
-        audioTrack: audioTrackSid, // Must be SID
-        fileOutputs: [
-          {
+        trackId: audioTrackSid, // Use trackId (not audioTrack) for startTrackEgress
+        output: {
+          file: {
             fileType: 'MP3',
             filepath: fileName,
             s3: {
@@ -103,20 +102,20 @@ class RecordingService {
               forcePathStyle: true, // Required for R2 compatibility
             },
           },
-        ],
+        },
       };
 
       // Debug check immediately after construction
-      console.log(`[RecordingService] DEBUG CHECK:`, {
+      console.log(`[RecordingService] FINAL DEBUG:`, {
         roomName: request.roomName,
-        audioTrack: request.audioTrack,
-        hasFileOutputs: !!request.fileOutputs,
-        fileOutputsLength: request.fileOutputs?.length,
-        filepath: request.fileOutputs?.[0]?.filepath,
+        trackId: request.trackId,
+        hasOutput: !!request.output,
+        hasFile: !!(request.output && request.output.file),
+        filepath: request.output?.file?.filepath,
       });
 
-      // Start track composite egress (no Chromium/PulseAudio needed - works on 2 CPU)
-      const egress = await this.egressClient.startTrackCompositeEgress(request);
+      // Start track egress (single track, no composite, no Chromium/PulseAudio needed)
+      const egress = await this.egressClient.startTrackEgress(request);
       
       const egressId = egress.egressId;
       console.log(`[RecordingService] ✅ Recording started with egress ID: ${egressId}`);
