@@ -74,15 +74,15 @@ class RecordingService {
       }
 
       // Use SID instead of name since track name is often empty string
-      const audioTrackName = audioTrack.sid;
-      console.log(`[RecordingService] ✅ Found audio track: SID=${audioTrackName}, name="${audioTrack.name}", type=${audioTrack.type}, muted=${audioTrack.muted}`);
+      const audioTrackSid = audioTrack.sid;
+      console.log(`[RecordingService] ✅ Found audio track: SID=${audioTrackSid}, name="${audioTrack.name}", type=${audioTrack.type}, muted=${audioTrack.muted}`);
 
       // Generate R2 file path
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const fileName = `recordings/${sessionId}/${sessionId}-${timestamp}.mp3`;
 
       console.log(`[RecordingService] Calling LiveKit egress API at: ${config.livekit.httpUrl}`);
-      console.log(`[RecordingService] Room name: ${roomName}, Audio track: ${audioTrackName}, File path: ${fileName}`);
+      console.log(`[RecordingService] Room name: ${roomName}, Audio track: ${audioTrackSid}, File path: ${fileName}`);
       
       // Create EncodedFileOutput with R2 S3 configuration
       const fileOutput = new EncodedFileOutput({
@@ -100,13 +100,15 @@ class RecordingService {
 
       // Create TrackCompositeEgressRequest with correct structure for SDK v2.15.0
       // Field names: audioTrack (not audioTrackName), file (not outputs.file)
+      // Use audioTrack.sid directly to ensure it's set correctly
       const request = new TrackCompositeEgressRequest({
         roomName: roomName,
-        audioTrack: audioTrackName, // Use SID from track - field name is 'audioTrack' not 'audioTrackName'
+        audioTrack: audioTrack.sid, // Use SID directly from track object
         file: fileOutput, // Field name is 'file' not 'outputs.file'
       });
 
-      console.log(`[RecordingService] Request structure:`, {
+      // Debug check immediately after construction
+      console.log(`[RecordingService] DEBUG CHECK:`, {
         roomName: request.roomName,
         audioTrack: request.audioTrack,
         hasFile: !!request.file,
