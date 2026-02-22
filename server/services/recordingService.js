@@ -84,33 +84,37 @@ class RecordingService {
       console.log(`[RecordingService] Calling LiveKit egress API at: ${config.livekit.httpUrl}`);
       console.log(`[RecordingService] Room name: ${roomName}, Audio track: ${audioTrackName}, File path: ${fileName}`);
       
-      // Create request with correct structure for TrackCompositeEgress
-      // Use plain object with output.file structure (not file_outputs)
-      const request = {
-        roomName: roomName,
-        audioTrackName: audioTrackName, // MUST be defined - fetched from participants
-        output: {
-          file: {
-            fileType: 'MP3',
-            filepath: fileName,
-            s3: {
-              accessKey: config.r2.accessKeyId,
-              secret: config.r2.secretAccessKey,
-              region: config.r2.region || 'auto',
-              endpoint: config.r2.endpoint,
-              bucket: config.r2.bucket,
-              forcePathStyle: true, // Required for R2 compatibility
-            },
-          },
+      // Create EncodedFileOutput with R2 S3 configuration
+      const fileOutput = new EncodedFileOutput({
+        fileType: 'MP3',
+        filepath: fileName,
+        s3: {
+          accessKey: config.r2.accessKeyId,
+          secret: config.r2.secretAccessKey,
+          region: config.r2.region || 'auto',
+          endpoint: config.r2.endpoint,
+          bucket: config.r2.bucket,
+          forcePathStyle: true, // Required for R2 compatibility
         },
-      };
+      });
+
+      // Create TrackCompositeEgressRequest with correct structure
+      // SDK expects: outputs (plural) not output (singular)
+      const request = new TrackCompositeEgressRequest({
+        roomName: roomName,
+        audioTrackName: audioTrackName, // Use SID from track
+        outputs: {
+          file: fileOutput,
+        },
+      });
 
       console.log(`[RecordingService] Request structure:`, {
         roomName: request.roomName,
         audioTrackName: request.audioTrackName,
-        hasOutput: !!request.output,
-        hasFile: !!(request.output && request.output.file),
-        filepath: request.output?.file?.filepath,
+        hasOutputs: !!request.outputs,
+        hasFile: !!(request.outputs && request.outputs.file),
+        filepath: request.outputs?.file?.filepath,
+        requestType: request.constructor?.name,
       });
 
       // Start track composite egress (no Chromium/PulseAudio needed - works on 2 CPU)
