@@ -34,13 +34,18 @@ class RecordingService {
    */
   async startRecording(roomName, sessionId) {
     try {
-      console.log(`Starting recording for room: ${roomName}`);
+      console.log(`Starting recording for room: ${roomName}, session: ${sessionId}`);
+
+      // Validate R2 configuration
+      if (!config.r2.accessKeyId || !config.r2.secretAccessKey || !config.r2.bucket || !config.r2.endpoint) {
+        throw new Error('R2 configuration is missing. Please set R2_ACCESS_KEY, R2_SECRET_KEY, R2_BUCKET, and R2_ENDPOINT environment variables.');
+      }
 
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const fileName = `recordings/${sessionId}/${sessionId}-${timestamp}.mp4`;
 
-      // ✅ MUST use EncodedFileOutput class
-      const output = new EncodedFileOutput({
+      // Create EncodedFileOutput instance
+      const fileOutput = new EncodedFileOutput({
         fileType: 'MP4',
         filepath: fileName,
         s3: {
@@ -53,14 +58,20 @@ class RecordingService {
         },
       });
 
-      // ✅ MUST use RoomCompositeEgressRequest class
+      // Create RoomCompositeEgressRequest with fileOutputs array
+      // The SDK's isEncodedOutputs checks for fileOutputs (plural)
       const request = new RoomCompositeEgressRequest({
         roomName: roomName,
         layout: 'speaker',
-        file: output,   // ⚠️ NOT fileOutputs
+        fileOutputs: [fileOutput],  // Use array for fileOutputs
       });
 
-      console.log("FINAL REQUEST OK");
+      console.log("Request created, verification:", {
+        roomName: request.roomName,
+        layout: request.layout,
+        hasFileOutputs: !!request.fileOutputs,
+        fileOutputsLength: request.fileOutputs?.length,
+      });
 
       const egress = await this.egressClient.startRoomCompositeEgress(request);
 
@@ -71,6 +82,11 @@ class RecordingService {
       return egress.egressId;
     } catch (error) {
       console.error("START RECORDING ERROR:", error);
+      console.error("Error details:", {
+        message: error.message,
+        stack: error.stack,
+        name: error.name,
+      });
       throw new Error(`Failed to start recording: ${error.message}`);
     }
   }
