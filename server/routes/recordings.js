@@ -160,6 +160,10 @@ router.post('/session/:sessionId/stop', async (req, res) => {
     // Stop recording
     await recordingService.stopRecording(session.recordingEgressId);
 
+    // Mark session as not recording immediately (file processing continues in background)
+    // The session will be fully cleared when the webhook fires
+    sessionService.clearRecording(sessionId);
+
     res.json({
       success: true,
       message: 'Recording stopped successfully. File will be processed and stored.',

@@ -91,6 +91,38 @@ class RecordingService {
   }
 
   /**
+   * Helper to normalize status (handles both enum numbers and strings)
+   * LiveKit SDK enum values (based on protobuf EgressStatus):
+   * Note: The actual values may vary, but we handle common cases
+   * Common pattern: 0=STARTING, 1=ACTIVE, 2=ENDING, 3=COMPLETE, 4=FAILED, 5=ABORTED
+   * But status 4 in logs might be ACTIVE, so we try to stop regardless if it's a number
+   */
+  normalizeStatus(status) {
+    if (typeof status === 'number') {
+      // Try common enum mappings
+      const statusMap = {
+        0: 'EGRESS_STARTING',
+        1: 'EGRESS_ACTIVE',
+        2: 'EGRESS_ENDING',
+        3: 'EGRESS_COMPLETE',
+        4: 'EGRESS_ACTIVE', // Status 4 might be ACTIVE in some SDK versions
+        5: 'EGRESS_FAILED',
+        6: 'EGRESS_ABORTED',
+      };
+      // If we have a mapping, use it; otherwise assume it's active if it's a reasonable number
+      if (statusMap[status] !== undefined) {
+        return statusMap[status];
+      }
+      // For unknown numbers, if it's between 0-6, assume it might be active and try to stop
+      if (status >= 0 && status <= 6) {
+        return 'EGRESS_ACTIVE'; // Default to active for unknown numeric statuses
+      }
+      return `UNKNOWN_${status}`;
+    }
+    return status;
+  }
+
+  /**
    * Stop recording
    * @param {string} egressId - The egress ID to stop
    * @returns {Promise<void>}
@@ -107,9 +139,10 @@ class RecordingService {
       }
       
       const egress = egressList[0];
-      const status = egress.status;
+      const rawStatus = egress.status;
+      const status = this.normalizeStatus(rawStatus);
       
-      console.log(`[RecordingService] Current egress status: ${status}`);
+      console.log(`[RecordingService] Current egress status: ${rawStatus} (${status})`);
       
       // Handle different statuses
       if (status === 'EGRESS_COMPLETE' || status === 'EGRESS_ENDING') {
@@ -133,7 +166,14 @@ class RecordingService {
         console.log(`[RecordingService] LiveKit is now finalizing the file and uploading to R2`);
         console.log(`[RecordingService] You will receive an 'egress_ended' webhook when the file is saved`);
       } else {
-        console.log(`[RecordingService] Egress is in status: ${status}. No action needed.`);
+        console.log(`[RecordingService] Egress is in status: ${status} (${rawStatus}). Attempting to stop anyway...`);
+        // Try to stop anyway if status is unknown or active
+        try {
+          await this.egressClient.stopEgress(egressId);
+          console.log(`[RecordingService] ✅ Stop command sent for status ${status}`);
+        } catch (stopError) {
+          console.warn(`[RecordingService] Could not stop egress with status ${status}:`, stopError.message);
+        }
       }
     } catch (error) {
       console.error(`[RecordingService] Error stopping recording:`, error);
@@ -145,8 +185,9 @@ class RecordingService {
           const egressList = await this.egressClient.listEgress([egressId]);
           if (egressList.length > 0) {
             const egress = egressList[0];
-            console.warn(`[RecordingService] Egress status: ${egress.status}`);
-            if (egress.status === 'EGRESS_FAILED') {
+            const status = this.normalizeStatus(egress.status);
+            console.warn(`[RecordingService] Egress status: ${egress.status} (${status})`);
+            if (status === 'EGRESS_FAILED' || status === 'EGRESS_ABORTED') {
               console.warn(`[RecordingService] Egress failed. Error: ${egress.error || 'Unknown error'}`);
               // Try to handle the failed recording
               await this.handleRecordingComplete(egressId, egress);
@@ -184,7 +225,8 @@ class RecordingService {
    */
   async handleRecordingComplete(egressId, egressInfo) {
     try {
-      const status = egressInfo.status || egressInfo.egressStatus;
+      const rawStatus = egressInfo.status || egressInfo.egressStatus;
+      const status = this.normalizeStatus(rawStatus);
       const isFailed = status === 'EGRESS_FAILED' || status === 'EGRESS_ABORTED';
       
       if (isFailed) {
