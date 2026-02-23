@@ -43,7 +43,7 @@ class RecordingService {
 
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       // Use .m4a for audio-only recording (AAC encoding)
-      const fileName = `recordings/${sessionId}/${sessionId}-${timestamp}.m4a`;
+      const fileName = `audios/${sessionId}/${sessionId}-${timestamp}.m4a`;
 
       // Create S3Upload instance for R2 (S3-compatible)
       const s3Upload = new S3Upload({
@@ -93,31 +93,24 @@ class RecordingService {
   /**
    * Helper to normalize status (handles both enum numbers and strings)
    * LiveKit SDK enum values (based on protobuf EgressStatus):
-   * Note: The actual values may vary, but we handle common cases
-   * Common pattern: 0=STARTING, 1=ACTIVE, 2=ENDING, 3=COMPLETE, 4=FAILED, 5=ABORTED
-   * But status 4 in logs might be ACTIVE, so we try to stop regardless if it's a number
+   * 0 = EGRESS_STARTING
+   * 1 = EGRESS_ACTIVE
+   * 2 = EGRESS_ENDING
+   * 3 = EGRESS_COMPLETE
+   * 4 = EGRESS_FAILED
+   * 5 = EGRESS_ABORTED
    */
   normalizeStatus(status) {
     if (typeof status === 'number') {
-      // Try common enum mappings
       const statusMap = {
         0: 'EGRESS_STARTING',
         1: 'EGRESS_ACTIVE',
         2: 'EGRESS_ENDING',
         3: 'EGRESS_COMPLETE',
-        4: 'EGRESS_ACTIVE', // Status 4 might be ACTIVE in some SDK versions
-        5: 'EGRESS_FAILED',
-        6: 'EGRESS_ABORTED',
+        4: 'EGRESS_FAILED',
+        5: 'EGRESS_ABORTED',
       };
-      // If we have a mapping, use it; otherwise assume it's active if it's a reasonable number
-      if (statusMap[status] !== undefined) {
-        return statusMap[status];
-      }
-      // For unknown numbers, if it's between 0-6, assume it might be active and try to stop
-      if (status >= 0 && status <= 6) {
-        return 'EGRESS_ACTIVE'; // Default to active for unknown numeric statuses
-      }
-      return `UNKNOWN_${status}`;
+      return statusMap[status] || `UNKNOWN_${status}`;
     }
     return status;
   }
@@ -144,18 +137,18 @@ class RecordingService {
       
       console.log(`[RecordingService] Current egress status: ${rawStatus} (${status})`);
       
-      // Handle different statuses
-      if (status === 'EGRESS_COMPLETE' || status === 'EGRESS_ENDING') {
-        console.log(`[RecordingService] Egress is already ${status === 'EGRESS_COMPLETE' ? 'complete' : 'ending'}. File should be processing.`);
+      // Handle different statuses - check failed/aborted FIRST before trying to stop
+      if (status === 'EGRESS_FAILED' || status === 'EGRESS_ABORTED') {
+        console.warn(`[RecordingService] ⚠️ Egress has ${status}. Cannot stop a failed/aborted egress.`);
+        console.warn(`[RecordingService] Error info:`, egress.error || egress.errorReason || 'No error details available');
+        
+        // Handle the failed recording immediately
+        await this.handleRecordingComplete(egressId, egress);
         return;
       }
       
-      if (status === 'EGRESS_FAILED' || status === 'EGRESS_ABORTED') {
-        console.warn(`[RecordingService] ⚠️ Egress has ${status}. Cannot stop a failed/aborted egress.`);
-        console.warn(`[RecordingService] Error info:`, egress.error || 'No error details available');
-        
-        // Still try to handle the failed recording
-        await this.handleRecordingComplete(egressId, egress);
+      if (status === 'EGRESS_COMPLETE' || status === 'EGRESS_ENDING') {
+        console.log(`[RecordingService] Egress is already ${status === 'EGRESS_COMPLETE' ? 'complete' : 'ending'}. File should be processing.`);
         return;
       }
       
@@ -166,13 +159,17 @@ class RecordingService {
         console.log(`[RecordingService] LiveKit is now finalizing the file and uploading to R2`);
         console.log(`[RecordingService] You will receive an 'egress_ended' webhook when the file is saved`);
       } else {
-        console.log(`[RecordingService] Egress is in status: ${status} (${rawStatus}). Attempting to stop anyway...`);
-        // Try to stop anyway if status is unknown or active
+        console.log(`[RecordingService] Egress is in unknown status: ${status} (${rawStatus}). Attempting to stop anyway...`);
+        // Try to stop anyway if status is unknown
         try {
           await this.egressClient.stopEgress(egressId);
           console.log(`[RecordingService] ✅ Stop command sent for status ${status}`);
         } catch (stopError) {
           console.warn(`[RecordingService] Could not stop egress with status ${status}:`, stopError.message);
+          // If it failed, check if it's actually a failed egress
+          if (stopError.status === 412 || stopError.code === 'failed_precondition') {
+            console.warn(`[RecordingService] Egress cannot be stopped. It may have already failed.`);
+          }
         }
       }
     } catch (error) {
