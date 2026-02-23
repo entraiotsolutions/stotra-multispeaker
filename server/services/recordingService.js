@@ -4,7 +4,7 @@ const {
   RoomServiceClient, 
   EgressClient,
   EncodedFileOutput,
-  RoomCompositeEgressRequest
+  S3Upload
 } = require('livekit-server-sdk');
 const config = require('../config');
 const sessionService = require('./sessionService');
@@ -25,9 +25,9 @@ class RecordingService {
   }
 
   /**
-   * Start recording a room (MP4)
+   * Start recording a room (audio-only, M4A)
    * Uses RoomCompositeEgress to record the entire room
-   * Note: RoomCompositeEgress only supports MP4, not MP3
+   * Based on official LiveKit examples from Slack
    * @param {string} roomName - The room name to record
    * @param {string} sessionId - The session ID
    * @returns {Promise<string>} Egress ID
@@ -42,44 +42,43 @@ class RecordingService {
       }
 
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const fileName = `recordings/${sessionId}/${sessionId}-${timestamp}.mp4`;
+      // Use .m4a for audio-only recording (AAC encoding)
+      const fileName = `recordings/${sessionId}/${sessionId}-${timestamp}.m4a`;
 
-      // Create EncodedFileOutput instance
+      // Create S3Upload instance for R2 (S3-compatible)
+      const s3Upload = new S3Upload({
+        accessKey: config.r2.accessKeyId,
+        secret: config.r2.secretAccessKey,
+        region: config.r2.region || 'auto',
+        bucket: config.r2.bucket,
+        endpoint: config.r2.endpoint,
+        forcePathStyle: true,
+      });
+
+      // Create EncodedFileOutput with S3Upload in output.case structure
       const fileOutput = new EncodedFileOutput({
-        fileType: 'MP4',
         filepath: fileName,
-        s3: {
-          accessKey: config.r2.accessKeyId,
-          secret: config.r2.secretAccessKey,
-          region: config.r2.region || 'auto',
-          endpoint: config.r2.endpoint,
-          bucket: config.r2.bucket,
-          forcePathStyle: true,
+        output: {
+          case: 's3',
+          value: s3Upload,
         },
       });
 
-      // Create RoomCompositeEgressRequest with fileOutputs array
-      // The SDK's isEncodedOutputs checks for fileOutputs (plural)
-      const request = new RoomCompositeEgressRequest({
-        roomName: roomName,
-        layout: 'speaker',
-        fileOutputs: [fileOutput],  // Use array for fileOutputs
-      });
+      console.log("Starting room composite egress with audio-only layout...");
 
-      console.log("Request created, verification:", {
-        roomName: request.roomName,
-        layout: request.layout,
-        hasFileOutputs: !!request.fileOutputs,
-        fileOutputsLength: request.fileOutputs?.length,
-      });
+      // Use the correct method signature: startRoomCompositeEgress(roomName, { file }, { layout })
+      // This matches the official LiveKit examples
+      const info = await this.egressClient.startRoomCompositeEgress(
+        roomName,
+        { file: fileOutput },
+        { layout: 'audio-only' }
+      );
 
-      const egress = await this.egressClient.startRoomCompositeEgress(request);
+      console.log("✅ Egress started with ID:", info.egressId);
 
-      console.log("✅ Egress started:", egress.egressId);
+      sessionService.setRecording(sessionId, info.egressId);
 
-      sessionService.setRecording(sessionId, egress.egressId);
-
-      return egress.egressId;
+      return info.egressId;
     } catch (error) {
       console.error("START RECORDING ERROR:", error);
       console.error("Error details:", {
