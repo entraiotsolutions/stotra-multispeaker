@@ -28,6 +28,9 @@ class RecordingService {
    * Start recording a room (audio-only, M4A)
    * Uses RoomCompositeEgress to record the entire room
    * Based on official LiveKit examples from Slack
+   * 
+   * NOTE: Requires PulseAudio to be installed on the LiveKit server for audio-only recording
+   * 
    * @param {string} roomName - The room name to record
    * @param {string} sessionId - The session ID
    * @returns {Promise<string>} Egress ID
@@ -41,8 +44,21 @@ class RecordingService {
         throw new Error('R2 configuration is missing. Please set R2_ACCESS_KEY, R2_SECRET_KEY, R2_BUCKET, and R2_ENDPOINT environment variables.');
       }
 
+      // Verify room exists and has participants (RoomCompositeEgress needs an active room)
+      try {
+        const participants = await this.roomService.listParticipants(roomName);
+        console.log(`[RecordingService] Room ${roomName} has ${participants?.length || 0} participants`);
+        if (!participants || participants.length === 0) {
+          console.warn(`[RecordingService] Warning: Room ${roomName} has no participants. Recording may fail if room is empty.`);
+        }
+      } catch (roomError) {
+        console.warn(`[RecordingService] Could not verify room participants: ${roomError.message}`);
+        // Continue anyway - room might exist but be temporarily inaccessible
+      }
+
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       // Use .m4a for audio-only recording (AAC encoding)
+      // Files are saved to the 'audios' directory in R2
       const fileName = `audios/${sessionId}/${sessionId}-${timestamp}.m4a`;
 
       // Create S3Upload instance for R2 (S3-compatible)
@@ -86,6 +102,12 @@ class RecordingService {
         stack: error.stack,
         name: error.name,
       });
+      
+      // Provide helpful error message for PulseAudio issues
+      if (error.message && error.message.includes('pulse')) {
+        throw new Error(`Failed to start recording: PulseAudio is not available on the LiveKit server. Audio-only RoomCompositeEgress requires PulseAudio to be installed and running on the server. Error: ${error.message}`);
+      }
+      
       throw new Error(`Failed to start recording: ${error.message}`);
     }
   }
