@@ -68,6 +68,11 @@ class RecordingService {
         } else {
           console.log(`[RecordingService] ✅ Room has ${participants.length} participant(s) with active audio tracks. Ready to record.`);
         }
+        
+        // Add a small delay to ensure participants are fully connected
+        // RoomCompositeEgress needs participants to be fully established before it can connect
+        console.log(`[RecordingService] Waiting 2 seconds for participants to fully establish connection...`);
+        await new Promise(resolve => setTimeout(resolve, 2000));
       } catch (roomError) {
         // If it's our custom error about no participants, throw it
         if (roomError.message && roomError.message.includes('no participants')) {
@@ -104,6 +109,8 @@ class RecordingService {
       });
 
       console.log("Starting room composite egress with audio-only layout...");
+      console.log(`[RecordingService] ⚠️ IMPORTANT: Ensure your egress.yaml file has ws_url matching: ${config.livekit.url}`);
+      console.log(`[RecordingService] If egress.yaml uses ws://127.0.0.1:7880 but your server is at ${config.livekit.url}, update egress.yaml and restart the egress container.`);
 
       // Use the correct method signature: startRoomCompositeEgress(roomName, { file }, { layout })
       // This matches the official LiveKit examples
