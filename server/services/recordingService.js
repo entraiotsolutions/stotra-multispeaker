@@ -38,22 +38,45 @@ class RecordingService {
   async startRecording(roomName, sessionId) {
     try {
       console.log(`Starting recording for room: ${roomName}, session: ${sessionId}`);
+      console.log(`[RecordingService] LiveKit HTTP URL: ${config.livekit.httpUrl}`);
+      console.log(`[RecordingService] LiveKit WebSocket URL: ${config.livekit.url}`);
 
       // Validate R2 configuration
       if (!config.r2.accessKeyId || !config.r2.secretAccessKey || !config.r2.bucket || !config.r2.endpoint) {
         throw new Error('R2 configuration is missing. Please set R2_ACCESS_KEY, R2_SECRET_KEY, R2_BUCKET, and R2_ENDPOINT environment variables.');
       }
 
-      // Verify room exists and has participants (RoomCompositeEgress needs an active room)
+      // Verify room exists and has participants (RoomCompositeEgress REQUIRES active participants)
+      let participants = [];
       try {
-        const participants = await this.roomService.listParticipants(roomName);
+        participants = await this.roomService.listParticipants(roomName);
         console.log(`[RecordingService] Room ${roomName} has ${participants?.length || 0} participants`);
+        
         if (!participants || participants.length === 0) {
-          console.warn(`[RecordingService] Warning: Room ${roomName} has no participants. Recording may fail if room is empty.`);
+          throw new Error(`Room ${roomName} has no participants. RoomCompositeEgress requires at least one active participant in the room. Please ensure participants have joined the room before starting recording.`);
+        }
+        
+        // Check if any participant is publishing audio
+        const hasAudio = participants.some(p => {
+          const tracks = p.tracks || [];
+          return tracks.some(t => t.type === 0 && !t.muted); // AUDIO type = 0
+        });
+        
+        if (!hasAudio) {
+          console.warn(`[RecordingService] ⚠️ WARNING: No active audio tracks found in room ${roomName}. Recording may produce empty files or fail.`);
+          console.warn(`[RecordingService] Participants: ${participants.map(p => `${p.identity} (${p.tracks?.length || 0} tracks)`).join(', ')}`);
+        } else {
+          console.log(`[RecordingService] ✅ Room has ${participants.length} participant(s) with active audio tracks. Ready to record.`);
         }
       } catch (roomError) {
-        console.warn(`[RecordingService] Could not verify room participants: ${roomError.message}`);
-        // Continue anyway - room might exist but be temporarily inaccessible
+        // If it's our custom error about no participants, throw it
+        if (roomError.message && roomError.message.includes('no participants')) {
+          throw roomError;
+        }
+        // Otherwise, it might be a connectivity issue
+        console.error(`[RecordingService] ❌ ERROR: Could not verify room participants: ${roomError.message}`);
+        console.error(`[RecordingService] This might indicate the LiveKit server is not accessible at ${config.livekit.httpUrl}`);
+        throw new Error(`Failed to connect to LiveKit room ${roomName}. Please verify the LiveKit server is running and accessible. Error: ${roomError.message}`);
       }
 
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -103,9 +126,13 @@ class RecordingService {
         name: error.name,
       });
       
-      // Provide helpful error message for PulseAudio issues
+      // Provide helpful error messages for common issues
       if (error.message && error.message.includes('pulse')) {
-        throw new Error(`Failed to start recording: PulseAudio is not available on the LiveKit server. Audio-only RoomCompositeEgress requires PulseAudio to be installed and running on the server. Error: ${error.message}`);
+        throw new Error(`Failed to start recording: PulseAudio is not available on the LiveKit egress service. Audio-only RoomCompositeEgress requires PulseAudio to be installed and running in the egress container. Error: ${error.message}`);
+      }
+      
+      if (error.message && (error.message.includes('Start signal not received') || error.message.includes('connection') || error.message.includes('timeout'))) {
+        throw new Error(`Failed to start recording: The egress service cannot connect to the LiveKit room. This usually means: (1) No participants are in the room, (2) The LiveKit server is not accessible from the egress container, or (3) The WebSocket connection failed. Please verify participants are in the room and the LiveKit server is running. Error: ${error.message}`);
       }
       
       throw new Error(`Failed to start recording: ${error.message}`);
