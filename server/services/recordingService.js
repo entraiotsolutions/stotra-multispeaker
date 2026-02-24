@@ -110,13 +110,15 @@ class RecordingService {
       console.log(`[RecordingService] Recording track ${trackToRecord.trackId} from participant ${trackToRecord.participantIdentity}`);
 
       // Start TrackCompositeEgress - records tracks directly without PulseAudio
-      // This records all audio tracks in the room
+      // This records a single audio track
+      // Method signature: startTrackCompositeEgress(roomName, output, opts?)
+      // opts should have audioTrackId (camelCase) in TrackCompositeOptions
       const info = await this.egressClient.startTrackCompositeEgress(
         trackToRecord.roomName,
+        fileOutput, // EncodedFileOutput as second parameter
         {
-          audioTrackId: trackToRecord.trackId,
-        },
-        { file: fileOutput }
+          audioTrackId: trackToRecord.trackId, // TrackCompositeOptions with audioTrackId
+        }
       );
 
       console.log("✅ TrackEgress started with ID:", info.egressId);
