@@ -7,9 +7,28 @@ const config = require('../config');
 class R2Service {
   constructor() {
     // R2 is S3-compatible, so we use AWS SDK
+    // Clean endpoint URL (remove trailing slashes and any path)
+    // Endpoint should be: https://<account-id>.r2.cloudflarestorage.com
+    let cleanEndpoint = config.r2.endpoint ? config.r2.endpoint.trim() : null;
+    if (cleanEndpoint) {
+      if (cleanEndpoint.endsWith('/')) {
+        cleanEndpoint = cleanEndpoint.slice(0, -1);
+      }
+      // Remove any path after the domain (bucket name might be in path)
+      const urlParts = cleanEndpoint.split('/');
+      if (urlParts.length > 3) {
+        cleanEndpoint = urlParts.slice(0, 3).join('/');
+      }
+    }
+    
+    // For Cloudflare R2, use 'us-east-1' region if 'auto' is specified
+    // (AWS SDK doesn't support 'auto' region)
+    const r2Region = config.r2.region === 'auto' ? 'us-east-1' : (config.r2.region || 'us-east-1');
+    
     this.s3Client = new S3Client({
-      region: config.r2.region,
-      endpoint: config.r2.endpoint,
+      region: r2Region,
+      endpoint: cleanEndpoint,
+      forcePathStyle: true, // R2 requires path-style URLs
       credentials: {
         accessKeyId: config.r2.accessKeyId,
         secretAccessKey: config.r2.secretAccessKey,

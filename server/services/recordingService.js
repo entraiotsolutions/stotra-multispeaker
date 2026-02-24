@@ -90,14 +90,37 @@ class RecordingService {
       // Files are saved to the 'audios' directory in R2
       const fileName = `audios/${sessionId}/${sessionId}-${timestamp}.m4a`;
 
+      // Clean endpoint URL (remove trailing slashes and any path)
+      // Endpoint should be: https://<account-id>.r2.cloudflarestorage.com
+      // NOT: https://<account-id>.r2.cloudflarestorage.com/bucket-name
+      let cleanEndpoint = config.r2.endpoint.trim();
+      if (cleanEndpoint.endsWith('/')) {
+        cleanEndpoint = cleanEndpoint.slice(0, -1);
+      }
+      // Remove any path after the domain (bucket name might be in path)
+      const urlParts = cleanEndpoint.split('/');
+      if (urlParts.length > 3) {
+        cleanEndpoint = urlParts.slice(0, 3).join('/');
+      }
+
+      // For Cloudflare R2, use 'us-east-1' region (many S3 clients don't support 'auto')
+      // The endpoint should be the base account endpoint without bucket name
+      const r2Region = config.r2.region === 'auto' ? 'us-east-1' : config.r2.region;
+
+      console.log(`[RecordingService] R2 Configuration:`);
+      console.log(`  Endpoint: ${cleanEndpoint}`);
+      console.log(`  Bucket: ${config.r2.bucket}`);
+      console.log(`  Region: ${r2Region}`);
+      console.log(`  Access Key: ${config.r2.accessKeyId ? config.r2.accessKeyId.substring(0, 8) + '...' : 'NOT SET'}`);
+
       // Create S3Upload instance for R2 (S3-compatible)
       const s3Upload = new S3Upload({
         accessKey: config.r2.accessKeyId,
         secret: config.r2.secretAccessKey,
-        region: config.r2.region || 'auto',
+        region: r2Region,
         bucket: config.r2.bucket,
-        endpoint: config.r2.endpoint,
-        forcePathStyle: true,
+        endpoint: cleanEndpoint,
+        forcePathStyle: true, // R2 requires path-style URLs
       });
 
       // Create EncodedFileOutput with S3Upload in output.case structure

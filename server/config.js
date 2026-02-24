@@ -19,7 +19,7 @@ module.exports = {
     bucket: process.env.R2_BUCKET,
     endpoint: process.env.R2_ENDPOINT,
     publicUrl: process.env.R2_PUBLIC_URL || 'https://pub-95b26d7009d14c6ca373f330f6d7923f.r2.dev',
-    region: 'auto', // R2 uses 'auto' region
+    region: process.env.R2_REGION || 'auto', // Optional: defaults to 'auto', automatically converted to 'us-east-1' for S3 compatibility
   },
 
   // Server Configuration
