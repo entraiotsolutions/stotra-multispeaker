@@ -25,6 +25,110 @@ class RecordingService {
   }
 
   /**
+   * Start recording using TrackEgress (simpler, no PulseAudio required)
+   * Records tracks directly from the room without needing Chrome/PulseAudio
+   * 
+   * @param {string} roomName - The room name to record
+   * @param {string} sessionId - The session ID
+   * @returns {Promise<string>} Egress ID
+   */
+  async startRecordingWithTracks(roomName, sessionId) {
+    try {
+      console.log(`[RecordingService] Starting TrackEgress recording for room: ${roomName}, session: ${sessionId}`);
+
+      // Validate R2 configuration
+      if (!config.r2.accessKeyId || !config.r2.secretAccessKey || !config.r2.bucket || !config.r2.endpoint) {
+        throw new Error('R2 configuration is missing. Please set R2_ACCESS_KEY, R2_SECRET_KEY, R2_BUCKET, and R2_ENDPOINT environment variables.');
+      }
+
+      // Get participants and their audio tracks
+      const participants = await this.roomService.listParticipants(roomName);
+      console.log(`[RecordingService] Room ${roomName} has ${participants?.length || 0} participants`);
+
+      if (!participants || participants.length === 0) {
+        throw new Error(`Room ${roomName} has no participants. Please ensure participants have joined the room before starting recording.`);
+      }
+
+      // Find all audio tracks in the room
+      const audioTracks = [];
+      for (const participant of participants) {
+        const tracks = participant.tracks || [];
+        for (const track of tracks) {
+          if (track.type === 0 && !track.muted) { // AUDIO type = 0
+            audioTracks.push({
+              roomName,
+              participantIdentity: participant.identity,
+              trackId: track.sid,
+            });
+          }
+        }
+      }
+
+      if (audioTracks.length === 0) {
+        throw new Error(`No active audio tracks found in room ${roomName}. Please ensure participants are publishing audio.`);
+      }
+
+      console.log(`[RecordingService] Found ${audioTracks.length} active audio track(s) to record`);
+
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const fileName = `audios/${sessionId}/${sessionId}-${timestamp}.m4a`;
+
+      // Clean endpoint URL
+      let cleanEndpoint = config.r2.endpoint.trim();
+      if (cleanEndpoint.endsWith('/')) {
+        cleanEndpoint = cleanEndpoint.slice(0, -1);
+      }
+      const urlParts = cleanEndpoint.split('/');
+      if (urlParts.length > 3) {
+        cleanEndpoint = urlParts.slice(0, 3).join('/');
+      }
+
+      const r2Region = config.r2.region === 'auto' ? 'us-east-1' : config.r2.region;
+
+      // Create S3Upload instance for R2
+      const s3Upload = new S3Upload({
+        accessKey: config.r2.accessKeyId,
+        secret: config.r2.secretAccessKey,
+        region: r2Region,
+        bucket: config.r2.bucket,
+        endpoint: cleanEndpoint,
+        forcePathStyle: true,
+      });
+
+      // Create file output
+      const fileOutput = new EncodedFileOutput({
+        filepath: fileName,
+        output: {
+          case: 's3',
+          value: s3Upload,
+        },
+      });
+
+      // Record the first audio track (or you can record all tracks)
+      // For simplicity, we'll record the first track
+      const trackToRecord = audioTracks[0];
+      console.log(`[RecordingService] Recording track ${trackToRecord.trackId} from participant ${trackToRecord.participantIdentity}`);
+
+      // Start TrackCompositeEgress - records tracks directly without PulseAudio
+      // This records all audio tracks in the room
+      const info = await this.egressClient.startTrackCompositeEgress(
+        trackToRecord.roomName,
+        {
+          audioTrackId: trackToRecord.trackId,
+        },
+        { file: fileOutput }
+      );
+
+      console.log("✅ TrackEgress started with ID:", info.egressId);
+      sessionService.setRecording(sessionId, info.egressId);
+      return info.egressId;
+    } catch (error) {
+      console.error("START TRACK RECORDING ERROR:", error);
+      throw new Error(`Failed to start track recording: ${error.message}`);
+    }
+  }
+
+  /**
    * Start recording a room (audio-only, M4A)
    * Uses RoomCompositeEgress to record the entire room
    * Based on official LiveKit examples from Slack

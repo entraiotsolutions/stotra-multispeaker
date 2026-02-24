@@ -94,9 +94,18 @@ router.post('/session/:sessionId/start', async (req, res) => {
       return;
     }
 
-    // Start recording
+    // Start recording - use track-based method (no PulseAudio required)
     console.log(`[Recordings] Attempting to start recording for session: ${sessionId}, room: ${session.roomName}`);
-    const egressId = await recordingService.startRecording(session.roomName, sessionId);
+    // Try track-based recording first (simpler, no PulseAudio needed)
+    let egressId;
+    try {
+      egressId = await recordingService.startRecordingWithTracks(session.roomName, sessionId);
+      console.log(`[Recordings] Using TrackEgress method (no PulseAudio required)`);
+    } catch (trackError) {
+      console.warn(`[Recordings] TrackEgress failed, falling back to RoomCompositeEgress: ${trackError.message}`);
+      // Fallback to RoomCompositeEgress if TrackEgress fails
+      egressId = await recordingService.startRecording(session.roomName, sessionId);
+    }
 
     res.json({
       success: true,
