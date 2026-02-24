@@ -69,10 +69,11 @@ class RecordingService {
           console.log(`[RecordingService] ✅ Room has ${participants.length} participant(s) with active audio tracks. Ready to record.`);
         }
         
-        // Add a small delay to ensure participants are fully connected
+        // Add a delay to ensure participants are fully connected and room is stable
         // RoomCompositeEgress needs participants to be fully established before it can connect
-        console.log(`[RecordingService] Waiting 2 seconds for participants to fully establish connection...`);
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        // Chrome needs time to establish WebSocket connection to the room
+        console.log(`[RecordingService] Waiting 5 seconds for participants to fully establish connection and room to stabilize...`);
+        await new Promise(resolve => setTimeout(resolve, 5000));
       } catch (roomError) {
         // If it's our custom error about no participants, throw it
         if (roomError.message && roomError.message.includes('no participants')) {
@@ -317,10 +318,13 @@ class RecordingService {
           if (egressInfo.file.url) {
             fileUrl = egressInfo.file.url;
             console.log(`[RecordingService] Using direct URL from LiveKit: ${fileUrl}`);
+          } else if (config.r2.publicUrl) {
+            // Use configured public URL (R2 public bucket URL or custom domain)
+            const baseUrl = config.r2.publicUrl.replace(/\/$/, '');
+            fileUrl = `${baseUrl}/${fileName}`;
+            console.log(`[RecordingService] Using R2 public URL: ${fileUrl}`);
           } else if (config.r2.bucket && config.r2.endpoint) {
-            // Construct R2 URL based on your R2 configuration
-            // R2 files are accessible via: https://<bucket>.<account-id>.r2.cloudflarestorage.com/<filepath>
-            // Or via custom domain if configured
+            // Fallback: Construct R2 URL based on endpoint
             const r2Domain = config.r2.endpoint.replace('https://', '').replace('http://', '').split('/')[0];
             fileUrl = `https://${config.r2.bucket}.${r2Domain}/${fileName}`;
             console.log(`[RecordingService] Constructed R2 URL: ${fileUrl}`);

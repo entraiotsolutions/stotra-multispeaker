@@ -18,6 +18,7 @@ module.exports = {
     secretAccessKey: process.env.R2_SECRET_KEY,
     bucket: process.env.R2_BUCKET,
     endpoint: process.env.R2_ENDPOINT,
+    publicUrl: process.env.R2_PUBLIC_URL || 'https://pub-95b26d7009d14c6ca373f330f6d7923f.r2.dev',
     region: 'auto', // R2 uses 'auto' region
   },
 

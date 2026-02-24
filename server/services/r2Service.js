@@ -36,8 +36,8 @@ class R2Service {
       await this.s3Client.send(command);
       console.log(`[R2Service] File uploaded: ${key}`);
 
-      // Return public URL (adjust based on your R2 setup)
-      return `https://${config.r2.bucket}.r2.cloudflarestorage.com/${key}`;
+      // Return public URL using configured public URL
+      return this.getPublicUrl(key);
     } catch (error) {
       console.error(`[R2Service] Error uploading file:`, error);
       throw error;
@@ -76,12 +76,15 @@ class R2Service {
    * @returns {string} Public URL
    */
   getPublicUrl(key) {
-    // Adjust based on your R2 public URL configuration
-    // Option 1: Using R2 public bucket URL
-    return `https://${config.r2.bucket}.r2.cloudflarestorage.com/${key}`;
+    // Use configured public URL (R2 public bucket URL or custom domain)
+    if (config.r2.publicUrl) {
+      // Ensure the public URL doesn't have a trailing slash
+      const baseUrl = config.r2.publicUrl.replace(/\/$/, '');
+      return `${baseUrl}/${key}`;
+    }
     
-    // Option 2: Using custom domain (if configured)
-    // return `https://your-custom-domain.com/${key}`;
+    // Fallback to constructed URL if public URL not configured
+    return `https://${config.r2.bucket}.r2.cloudflarestorage.com/${key}`;
   }
 }
 
