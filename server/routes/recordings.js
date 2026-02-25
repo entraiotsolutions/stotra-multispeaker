@@ -94,17 +94,19 @@ router.post('/session/:sessionId/start', async (req, res) => {
       return;
     }
 
-    // Start recording - use track-based method (no PulseAudio required)
+    // Start recording - use RoomCompositeEgress to record ALL participants
     console.log(`[Recordings] Attempting to start recording for session: ${sessionId}, room: ${session.roomName}`);
-    // Try track-based recording first (simpler, no PulseAudio needed)
+    // Use RoomCompositeEgress by default (records entire room with all participants)
+    // Falls back to TrackEgress if RoomCompositeEgress fails
     let egressId;
     try {
-      egressId = await recordingService.startRecordingWithTracks(session.roomName, sessionId);
-      console.log(`[Recordings] Using TrackEgress method (no PulseAudio required)`);
-    } catch (trackError) {
-      console.warn(`[Recordings] TrackEgress failed, falling back to RoomCompositeEgress: ${trackError.message}`);
-      // Fallback to RoomCompositeEgress if TrackEgress fails
       egressId = await recordingService.startRecording(session.roomName, sessionId);
+      console.log(`[Recordings] Using RoomCompositeEgress method (records all participants)`);
+    } catch (roomError) {
+      console.warn(`[Recordings] RoomCompositeEgress failed, falling back to TrackEgress: ${roomError.message}`);
+      // Fallback to TrackEgress if RoomCompositeEgress fails (records only one participant)
+      egressId = await recordingService.startRecordingWithTracks(session.roomName, sessionId);
+      console.warn(`[Recordings] ⚠️ Using TrackEgress fallback - only recording one participant's audio`);
     }
 
     res.json({
