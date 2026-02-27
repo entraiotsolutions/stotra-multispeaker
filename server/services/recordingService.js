@@ -333,8 +333,17 @@ class RecordingService {
         return;
       }
       
-      if (status === 'EGRESS_COMPLETE' || status === 'EGRESS_ENDING') {
-        console.log(`[RecordingService] Egress is already ${status === 'EGRESS_COMPLETE' ? 'complete' : 'ending'}. File should be processing.`);
+      if (status === 'EGRESS_COMPLETE') {
+        console.log(`[RecordingService] Egress is already complete. Processing recording completion...`);
+        // Even if already complete, we need to handle it to notify the main backend
+        await this.handleRecordingComplete(egressId, egress);
+        return;
+      }
+      
+      if (status === 'EGRESS_ENDING') {
+        console.log(`[RecordingService] Egress is ending. File should be processing. Will be handled by webhook or polling.`);
+        // Start polling for completion (fallback if webhook doesn't arrive)
+        this.startPollingForCompletion(egressId);
         return;
       }
       
@@ -463,15 +472,27 @@ class RecordingService {
         }
       }
       
+      // Fix: Remove .mp4 extension if fileName already has .m4a (LiveKit sometimes adds .mp4)
+      if (fileName && fileName.endsWith('.m4a.mp4')) {
+        fileName = fileName.replace(/\.mp4$/, '');
+        console.log(`[RecordingService] Fixed double extension, new fileName: ${fileName}`);
+      }
+      
       // Now construct fileUrl if we have fileName
       if (fileName) {
-        // If LiveKit provides a direct URL, use it
+        // If LiveKit provides a direct URL, use it but fix the extension if needed
         if (egressInfo.file && egressInfo.file.url) {
           fileUrl = egressInfo.file.url;
-          console.log(`[RecordingService] Using direct URL from LiveKit: ${fileUrl}`);
+          // Fix the URL extension if it has .m4a.mp4
+          if (fileUrl.endsWith('.m4a.mp4')) {
+            fileUrl = fileUrl.replace(/\.mp4$/, '');
+            console.log(`[RecordingService] Fixed double extension in URL, new fileUrl: ${fileUrl}`);
+          } else {
+            console.log(`[RecordingService] Using direct URL from LiveKit: ${fileUrl}`);
+          }
         } else if (config.r2.publicUrl) {
           // Use configured public URL (R2 public bucket URL or custom domain)
-          // fileName already includes 'audios/' prefix, so just prepend the base URL
+          // fileName already includes 'audios/' prefix and has been fixed (no .mp4), so just prepend the base URL
           const baseUrl = config.r2.publicUrl.replace(/\/$/, '');
           fileUrl = `${baseUrl}/${fileName}`;
           console.log(`[RecordingService] Constructed fileUrl from R2 public URL: ${fileUrl}`);
@@ -529,38 +550,77 @@ class RecordingService {
       // Notify main backend about recording completion (if configured)
       const mainBackendUrl = config.mainBackend?.webhookUrl || config.mainBackend?.url;
       if (mainBackendUrl && fileUrl) {
-        try {
-          const webhookUrl = `${mainBackendUrl}/api/v1/webhooks/recording-complete`;
-          const webhookSecret = config.mainBackend.webhookSecret || config.server.webhookSecret;
-          
-          console.log(`[RecordingService] Notifying main backend: ${webhookUrl}`);
-          console.log(`[RecordingService] Room name (sessionId): ${session.sessionId}`);
-          
-          const response = await fetch(webhookUrl, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${webhookSecret}`,
-            },
-            body: JSON.stringify({
-              roomName: session.sessionId, // roomName is the sessionId
-              recordingUrl: fileUrl,
-              fileName: fileName,
-              duration: duration,
-            }),
-          });
+        const webhookUrl = `${mainBackendUrl}/api/v1/webhooks/recording-complete`;
+        const webhookSecret = config.mainBackend.webhookSecret || config.server.webhookSecret;
+        
+        console.log(`[RecordingService] Notifying main backend: ${webhookUrl}`);
+        console.log(`[RecordingService] Room name (sessionId): ${session.sessionId}`);
+        console.log(`[RecordingService] File URL: ${fileUrl}`);
+        
+        // Retry logic for webhook notification (up to 3 attempts)
+        let lastError = null;
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+            
+            const response = await fetch(webhookUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${webhookSecret}`,
+              },
+              body: JSON.stringify({
+                roomName: session.sessionId, // roomName is the sessionId
+                recordingUrl: fileUrl,
+                fileName: fileName,
+                duration: duration,
+              }),
+              signal: controller.signal,
+            });
+            
+            clearTimeout(timeoutId);
 
-          if (response.ok) {
-            const result = await response.json();
-            console.log(`[RecordingService] ✅ Notified main backend about recording completion`);
-            console.log(`[RecordingService] Main backend response:`, result);
-          } else {
-            const errorText = await response.text().catch(() => 'No error details');
-            console.warn(`[RecordingService] ⚠️ Failed to notify main backend: ${response.status} ${response.statusText}`);
-            console.warn(`[RecordingService] Error details:`, errorText);
+            if (response.ok) {
+              const result = await response.json();
+              console.log(`[RecordingService] ✅ Notified main backend about recording completion (attempt ${attempt})`);
+              console.log(`[RecordingService] Main backend response:`, result);
+              lastError = null;
+              break; // Success, exit retry loop
+            } else {
+              const errorText = await response.text().catch(() => 'No error details');
+              lastError = { status: response.status, statusText: response.statusText, body: errorText };
+              console.warn(`[RecordingService] ⚠️ Failed to notify main backend (attempt ${attempt}/${3}): ${response.status} ${response.statusText}`);
+              console.warn(`[RecordingService] Error details:`, errorText);
+              
+              // If it's a 404, the route doesn't exist - don't retry
+              if (response.status === 404) {
+                console.error(`[RecordingService] ❌ Route not found. Ensure the backend is deployed with the latest code including /api/v1/webhooks/recording-complete route.`);
+                break;
+              }
+              
+              // Wait before retrying (exponential backoff)
+              if (attempt < 3) {
+                const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // 1s, 2s, 4s max
+                console.log(`[RecordingService] Retrying in ${delay}ms...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+              }
+            }
+          } catch (webhookError) {
+            lastError = webhookError;
+            console.error(`[RecordingService] Error notifying main backend (attempt ${attempt}/${3}):`, webhookError.message || webhookError);
+            
+            // Wait before retrying (exponential backoff)
+            if (attempt < 3) {
+              const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // 1s, 2s, 4s max
+              console.log(`[RecordingService] Retrying in ${delay}ms...`);
+              await new Promise(resolve => setTimeout(resolve, delay));
+            }
           }
-        } catch (webhookError) {
-          console.error(`[RecordingService] Error notifying main backend:`, webhookError);
+        }
+        
+        if (lastError) {
+          console.error(`[RecordingService] ❌ Failed to notify main backend after 3 attempts. Last error:`, lastError);
           // Don't fail the recording completion if webhook fails
         }
       } else {
@@ -584,40 +644,78 @@ class RecordingService {
       // The file might be uploaded even if egress status is failed
       if (isFailed && fileUrl && mainBackendUrl) {
         console.log(`[RecordingService] ⚠️ Recording failed but file URL exists. Notifying main backend...`);
-        try {
-          const webhookUrl = `${mainBackendUrl}/api/v1/webhooks/recording-complete`;
-          const webhookSecret = config.mainBackend.webhookSecret || config.server.webhookSecret;
-          
-          console.log(`[RecordingService] Notifying main backend (failed recording with file): ${webhookUrl}`);
-          console.log(`[RecordingService] Room name (sessionId): ${session.sessionId}`);
-          console.log(`[RecordingService] File URL: ${fileUrl}`);
-          
-          const response = await fetch(webhookUrl, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${webhookSecret}`,
-            },
-            body: JSON.stringify({
-              roomName: session.sessionId,
-              recordingUrl: fileUrl,
-              fileName: fileName,
-              duration: duration,
-              status: 'COMPLETED', // Mark as completed since file exists
-            }),
-          });
+        const webhookUrl = `${mainBackendUrl}/api/v1/webhooks/recording-complete`;
+        const webhookSecret = config.mainBackend.webhookSecret || config.server.webhookSecret;
+        
+        console.log(`[RecordingService] Notifying main backend (failed recording with file): ${webhookUrl}`);
+        console.log(`[RecordingService] Room name (sessionId): ${session.sessionId}`);
+        console.log(`[RecordingService] File URL: ${fileUrl}`);
+        
+        // Retry logic for webhook notification (up to 3 attempts)
+        let lastError = null;
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+            
+            const response = await fetch(webhookUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${webhookSecret}`,
+              },
+              body: JSON.stringify({
+                roomName: session.sessionId,
+                recordingUrl: fileUrl,
+                fileName: fileName,
+                duration: duration,
+                status: 'COMPLETED', // Mark as completed since file exists
+              }),
+              signal: controller.signal,
+            });
+            
+            clearTimeout(timeoutId);
 
-          if (response.ok) {
-            const result = await response.json();
-            console.log(`[RecordingService] ✅ Notified main backend about recording (file exists despite failed status)`);
-            console.log(`[RecordingService] Main backend response:`, result);
-          } else {
-            const errorText = await response.text().catch(() => 'No error details');
-            console.warn(`[RecordingService] ⚠️ Failed to notify main backend: ${response.status} ${response.statusText}`);
-            console.warn(`[RecordingService] Error details:`, errorText);
+            if (response.ok) {
+              const result = await response.json();
+              console.log(`[RecordingService] ✅ Notified main backend about recording (file exists despite failed status) (attempt ${attempt})`);
+              console.log(`[RecordingService] Main backend response:`, result);
+              lastError = null;
+              break; // Success, exit retry loop
+            } else {
+              const errorText = await response.text().catch(() => 'No error details');
+              lastError = { status: response.status, statusText: response.statusText, body: errorText };
+              console.warn(`[RecordingService] ⚠️ Failed to notify main backend (attempt ${attempt}/${3}): ${response.status} ${response.statusText}`);
+              console.warn(`[RecordingService] Error details:`, errorText);
+              
+              // If it's a 404, the route doesn't exist - don't retry
+              if (response.status === 404) {
+                console.error(`[RecordingService] ❌ Route not found. Ensure the backend is deployed with the latest code including /api/v1/webhooks/recording-complete route.`);
+                break;
+              }
+              
+              // Wait before retrying (exponential backoff)
+              if (attempt < 3) {
+                const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // 1s, 2s, 4s max
+                console.log(`[RecordingService] Retrying in ${delay}ms...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+              }
+            }
+          } catch (webhookError) {
+            lastError = webhookError;
+            console.error(`[RecordingService] Error notifying main backend (attempt ${attempt}/${3}):`, webhookError.message || webhookError);
+            
+            // Wait before retrying (exponential backoff)
+            if (attempt < 3) {
+              const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // 1s, 2s, 4s max
+              console.log(`[RecordingService] Retrying in ${delay}ms...`);
+              await new Promise(resolve => setTimeout(resolve, delay));
+            }
           }
-        } catch (webhookError) {
-          console.error(`[RecordingService] Error notifying main backend:`, webhookError);
+        }
+        
+        if (lastError) {
+          console.error(`[RecordingService] ❌ Failed to notify main backend after 3 attempts. Last error:`, lastError);
         }
       }
     } catch (error) {
