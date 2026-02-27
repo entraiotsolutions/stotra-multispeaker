@@ -436,31 +436,51 @@ class RecordingService {
 
       // Extract file information from egress info
       // LiveKit automatically uploads the file to R2 when egress ends
+      // For failed egresses, the file may still be uploaded but egress status is failed
       let fileUrl = null;
       let fileName = null;
       
-      // Check different possible structures for file info
-      if (egressInfo.file) {
+      // First, try to get fileName from various sources (order matters)
+      // Note: fileName already includes the 'audios/' prefix (e.g., 'audios/taskId/taskId-timestamp.m4a')
+      // 1. Check roomComposite.fileOutputs (most reliable for failed egresses)
+      if (egressInfo.roomComposite && egressInfo.roomComposite.fileOutputs && egressInfo.roomComposite.fileOutputs.length > 0) {
+        fileName = egressInfo.roomComposite.fileOutputs[0].filepath;
+        console.log(`[RecordingService] File name from roomComposite.fileOutputs: ${fileName}`);
+        console.log(`[RecordingService] File path already includes 'audios/' prefix: ${fileName.startsWith('audios/') ? 'Yes' : 'No'}`);
+      }
+      
+      // 2. Check fileResults array (for failed egresses that still have file info)
+      if (!fileName && egressInfo.fileResults && egressInfo.fileResults.length > 0) {
+        fileName = egressInfo.fileResults[0].filename;
+        console.log(`[RecordingService] File name from fileResults: ${fileName}`);
+      }
+      
+      // 3. Check egressInfo.file (standard location)
+      if (!fileName && egressInfo.file) {
         fileName = egressInfo.file.filename || egressInfo.file.filepath || egressInfo.file.location || egressInfo.file.name;
-        
         if (fileName) {
-          console.log(`[RecordingService] File name from egress: ${fileName}`);
-          
-          // If LiveKit provides a direct URL, use it
-          if (egressInfo.file.url) {
-            fileUrl = egressInfo.file.url;
-            console.log(`[RecordingService] Using direct URL from LiveKit: ${fileUrl}`);
-          } else if (config.r2.publicUrl) {
-            // Use configured public URL (R2 public bucket URL or custom domain)
-            const baseUrl = config.r2.publicUrl.replace(/\/$/, '');
-            fileUrl = `${baseUrl}/${fileName}`;
-            console.log(`[RecordingService] Using R2 public URL: ${fileUrl}`);
-          } else if (config.r2.bucket && config.r2.endpoint) {
-            // Fallback: Construct R2 URL based on endpoint
-            const r2Domain = config.r2.endpoint.replace('https://', '').replace('http://', '').split('/')[0];
-            fileUrl = `https://${config.r2.bucket}.${r2Domain}/${fileName}`;
-            console.log(`[RecordingService] Constructed R2 URL: ${fileUrl}`);
-          }
+          console.log(`[RecordingService] File name from egress.file: ${fileName}`);
+        }
+      }
+      
+      // Now construct fileUrl if we have fileName
+      if (fileName) {
+        // If LiveKit provides a direct URL, use it
+        if (egressInfo.file && egressInfo.file.url) {
+          fileUrl = egressInfo.file.url;
+          console.log(`[RecordingService] Using direct URL from LiveKit: ${fileUrl}`);
+        } else if (config.r2.publicUrl) {
+          // Use configured public URL (R2 public bucket URL or custom domain)
+          // fileName already includes 'audios/' prefix, so just prepend the base URL
+          const baseUrl = config.r2.publicUrl.replace(/\/$/, '');
+          fileUrl = `${baseUrl}/${fileName}`;
+          console.log(`[RecordingService] Constructed fileUrl from R2 public URL: ${fileUrl}`);
+          console.log(`[RecordingService] Final URL structure: ${baseUrl}/audios/...`);
+        } else if (config.r2.bucket && config.r2.endpoint) {
+          // Fallback: Construct R2 URL based on endpoint
+          const r2Domain = config.r2.endpoint.replace('https://', '').replace('http://', '').split('/')[0];
+          fileUrl = `https://${config.r2.bucket}.${r2Domain}/${fileName}`;
+          console.log(`[RecordingService] Constructed fileUrl from R2 endpoint: ${fileUrl}`);
         }
       }
       
@@ -549,6 +569,55 @@ class RecordingService {
         }
         if (!fileUrl) {
           console.warn(`[RecordingService] ⚠️ No file URL - skipping webhook notification`);
+          console.warn(`[RecordingService] Debug info: fileName=${fileName || 'none'}, status=${status}, isFailed=${isFailed}`);
+          console.warn(`[RecordingService] Egress info keys:`, Object.keys(egressInfo));
+          if (egressInfo.roomComposite) {
+            console.warn(`[RecordingService] roomComposite.fileOutputs:`, JSON.stringify(egressInfo.roomComposite.fileOutputs, null, 2));
+          }
+          if (egressInfo.fileResults) {
+            console.warn(`[RecordingService] fileResults:`, JSON.stringify(egressInfo.fileResults, null, 2));
+          }
+        }
+      }
+      
+      // For failed egresses, still try to notify if we have a fileUrl
+      // The file might be uploaded even if egress status is failed
+      if (isFailed && fileUrl && mainBackendUrl) {
+        console.log(`[RecordingService] ⚠️ Recording failed but file URL exists. Notifying main backend...`);
+        try {
+          const webhookUrl = `${mainBackendUrl}/api/v1/webhooks/recording-complete`;
+          const webhookSecret = config.mainBackend.webhookSecret || config.server.webhookSecret;
+          
+          console.log(`[RecordingService] Notifying main backend (failed recording with file): ${webhookUrl}`);
+          console.log(`[RecordingService] Room name (sessionId): ${session.sessionId}`);
+          console.log(`[RecordingService] File URL: ${fileUrl}`);
+          
+          const response = await fetch(webhookUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${webhookSecret}`,
+            },
+            body: JSON.stringify({
+              roomName: session.sessionId,
+              recordingUrl: fileUrl,
+              fileName: fileName,
+              duration: duration,
+              status: 'COMPLETED', // Mark as completed since file exists
+            }),
+          });
+
+          if (response.ok) {
+            const result = await response.json();
+            console.log(`[RecordingService] ✅ Notified main backend about recording (file exists despite failed status)`);
+            console.log(`[RecordingService] Main backend response:`, result);
+          } else {
+            const errorText = await response.text().catch(() => 'No error details');
+            console.warn(`[RecordingService] ⚠️ Failed to notify main backend: ${response.status} ${response.statusText}`);
+            console.warn(`[RecordingService] Error details:`, errorText);
+          }
+        } catch (webhookError) {
+          console.error(`[RecordingService] Error notifying main backend:`, webhookError);
         }
       }
     } catch (error) {
