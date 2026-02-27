@@ -34,4 +34,10 @@ module.exports = {
     idLength: 8, // 8-10 characters as requested
     idChars: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
   },
+
+  // Main Backend Configuration (for notifying about recording completion)
+  mainBackend: {
+    webhookUrl: process.env.MAIN_BACKEND_URL || process.env.SAMHITA_BACKEND_URL, // e.g., https://samhita-backend-3.onrender.com
+    webhookSecret: process.env.MAIN_BACKEND_WEBHOOK_SECRET || process.env.LIVEKIT_WEBHOOK_SECRET || 'dev-webhook-secret',
+  },
 };

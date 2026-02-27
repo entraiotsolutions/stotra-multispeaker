@@ -502,6 +502,39 @@ class RecordingService {
         console.log(`[RecordingService] Duration: ${duration} seconds`);
       }
       console.log(`[RecordingService] Recording metadata saved with ID: ${savedRecording.id}`);
+
+      // Notify main backend about recording completion (if configured)
+      if (config.mainBackend?.webhookUrl && fileUrl) {
+        try {
+          const webhookUrl = `${config.mainBackend.webhookUrl}/api/v1/webhooks/recording-complete`;
+          const webhookSecret = config.mainBackend.webhookSecret || config.server.webhookSecret;
+          
+          const response = await fetch(webhookUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${webhookSecret}`,
+            },
+            body: JSON.stringify({
+              roomName: session.sessionId, // roomName is the sessionId
+              recordingUrl: fileUrl,
+              fileName: fileName,
+              duration: duration,
+            }),
+          });
+
+          if (response.ok) {
+            const result = await response.json();
+            console.log(`[RecordingService] ✅ Notified main backend about recording completion`);
+            console.log(`[RecordingService] Main backend response:`, result);
+          } else {
+            console.warn(`[RecordingService] ⚠️ Failed to notify main backend: ${response.status} ${response.statusText}`);
+          }
+        } catch (webhookError) {
+          console.error(`[RecordingService] Error notifying main backend:`, webhookError);
+          // Don't fail the recording completion if webhook fails
+        }
+      }
     } catch (error) {
       console.error(`[RecordingService] Error handling recording completion:`, error);
       console.error(`[RecordingService] Error stack:`, error.stack);
