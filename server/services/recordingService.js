@@ -436,11 +436,32 @@ class RecordingService {
 
       // Find session by egress ID
       const sessions = sessionService.getAllSessions();
-      const session = sessions.find(s => s.recordingEgressId === egressId);
+      let session = sessions.find(s => s.recordingEgressId === egressId);
 
       if (!session) {
-        console.warn(`[RecordingService] No session found for egress ID: ${egressId}`);
-        return;
+        // Try to find session by room name as fallback
+        const roomName = egressInfo.roomName || egressInfo.room_name;
+        if (roomName) {
+          console.log(`[RecordingService] Session not found by egress ID, trying room name: ${roomName}`);
+          session = sessions.find(s => s.sessionId === roomName);
+          if (session) {
+            console.log(`[RecordingService] ✅ Found session by room name: ${roomName}`);
+            // Update the session's egress ID if it doesn't match
+            if (session.recordingEgressId !== egressId) {
+              console.log(`[RecordingService] Updating session egress ID from ${session.recordingEgressId} to ${egressId}`);
+              session.recordingEgressId = egressId;
+            }
+          }
+        }
+        
+        if (!session) {
+          console.warn(`[RecordingService] No session found for egress ID: ${egressId}`);
+          if (roomName) {
+            console.warn(`[RecordingService] Also tried room name: ${roomName}`);
+          }
+          console.warn(`[RecordingService] Available sessions: ${sessions.map(s => `${s.sessionId} (egress: ${s.recordingEgressId})`).join(', ')}`);
+          return;
+        }
       }
 
       // Extract file information from egress info
@@ -746,8 +767,37 @@ class RecordingService {
           return;
         }
         
-        const egress = egressList[0];
-        const rawStatus = egress.status;
+        // Find the egress with matching ID (listEgress might return multiple or wrong egress)
+        let egress = egressList.find(e => (e.egressId === egressId) || (e.egress_id === egressId));
+        
+        // If no exact match, check the first egress
+        if (!egress) {
+          const firstEgress = egressList[0];
+          const foundId = firstEgress.egressId || firstEgress.egress_id;
+          if (foundId === egressId) {
+            egress = firstEgress;
+          } else {
+            // Wrong egress returned - log error and continue polling
+            console.error(`[RecordingService] ⚠️ WARNING: listEgress returned different egress ID! Expected: ${egressId}, Got: ${foundId}`);
+            console.error(`[RecordingService] This egress belongs to room: ${firstEgress.roomName || firstEgress.room_name || 'unknown'}`);
+            console.error(`[RecordingService] Skipping this egress and continuing to poll for the correct one...`);
+            // Don't process wrong egress - continue polling
+            if (pollCount < maxPolls) {
+              return; // Continue polling
+            } else {
+              // Max polls reached, stop polling
+              clearInterval(pollIntervalId);
+              if (this.pollIntervals) {
+                this.pollIntervals.delete(egressId);
+              }
+              console.error(`[RecordingService] ❌ Max polling attempts reached. Could not find correct egress ${egressId}`);
+              return;
+            }
+          }
+        }
+        
+        const targetEgress = egress;
+        const rawStatus = targetEgress.status;
         const status = this.normalizeStatus(rawStatus);
         
         console.log(`[RecordingService] Poll ${pollCount}/${maxPolls}: Egress ${egressId} status: ${status}`);
@@ -763,7 +813,7 @@ class RecordingService {
           }
           
           // Handle completion
-          await this.handleRecordingComplete(egressId, egress);
+          await this.handleRecordingComplete(egressId, targetEgress);
           return;
         }
         
