@@ -344,6 +344,9 @@ class RecordingService {
         console.log(`[RecordingService] ✅ Recording stop command sent successfully`);
         console.log(`[RecordingService] LiveKit is now finalizing the file and uploading to R2`);
         console.log(`[RecordingService] You will receive an 'egress_ended' webhook when the file is saved`);
+        
+        // Start polling for completion (fallback if webhook doesn't arrive)
+        this.startPollingForCompletion(egressId);
       } else {
         console.log(`[RecordingService] Egress is in unknown status: ${status} (${rawStatus}). Attempting to stop anyway...`);
         // Try to stop anyway if status is unknown
@@ -551,6 +554,95 @@ class RecordingService {
     } catch (error) {
       console.error(`[RecordingService] Error handling recording completion:`, error);
       console.error(`[RecordingService] Error stack:`, error.stack);
+    }
+  }
+
+  /**
+   * Poll for recording completion (fallback if webhook doesn't arrive)
+   * @param {string} egressId
+   */
+  startPollingForCompletion(egressId) {
+    console.log(`[RecordingService] Starting polling for egress ${egressId} completion...`);
+    
+    let pollCount = 0;
+    const maxPolls = 60; // Poll for up to 5 minutes (60 * 5 seconds)
+    const pollInterval = 5000; // Poll every 5 seconds
+    
+    const pollIntervalId = setInterval(async () => {
+      pollCount++;
+      
+      try {
+        const egressList = await this.egressClient.listEgress([egressId]);
+        if (egressList.length === 0) {
+          console.warn(`[RecordingService] Egress ${egressId} not found during polling`);
+          clearInterval(pollIntervalId);
+          return;
+        }
+        
+        const egress = egressList[0];
+        const rawStatus = egress.status;
+        const status = this.normalizeStatus(rawStatus);
+        
+        console.log(`[RecordingService] Poll ${pollCount}/${maxPolls}: Egress ${egressId} status: ${status}`);
+        
+        // Check if recording is complete or failed
+        if (status === 'EGRESS_COMPLETE' || status === 'EGRESS_FAILED' || status === 'EGRESS_ABORTED') {
+          console.log(`[RecordingService] ✅ Egress ${egressId} is ${status}. Handling completion...`);
+          clearInterval(pollIntervalId);
+          
+          // Stop polling tracking
+          if (this.pollIntervals) {
+            this.pollIntervals.delete(egressId);
+          }
+          
+          // Handle completion
+          await this.handleRecordingComplete(egressId, egress);
+          return;
+        }
+        
+        // Stop polling if we've reached max attempts
+        if (pollCount >= maxPolls) {
+          console.warn(`[RecordingService] ⚠️ Max polling attempts reached for egress ${egressId}. Current status: ${status}`);
+          console.warn(`[RecordingService] ⚠️ Webhook may not be configured. Please check LiveKit webhook settings.`);
+          clearInterval(pollIntervalId);
+          
+          // Stop polling tracking
+          if (this.pollIntervals) {
+            this.pollIntervals.delete(egressId);
+          }
+          
+          // Try to handle anyway with current status
+          await this.handleRecordingComplete(egressId, egress);
+        }
+      } catch (error) {
+        console.error(`[RecordingService] Error polling egress status:`, error);
+        
+        // Stop polling on error after max attempts
+        if (pollCount >= maxPolls) {
+          clearInterval(pollIntervalId);
+          if (this.pollIntervals) {
+            this.pollIntervals.delete(egressId);
+          }
+        }
+      }
+    }, pollInterval);
+    
+    // Store interval ID so we can clear it if webhook arrives first
+    if (!this.pollIntervals) {
+      this.pollIntervals = new Map();
+    }
+    this.pollIntervals.set(egressId, pollIntervalId);
+  }
+
+  /**
+   * Stop polling for an egress (called when webhook arrives)
+   * @param {string} egressId
+   */
+  stopPollingForCompletion(egressId) {
+    if (this.pollIntervals && this.pollIntervals.has(egressId)) {
+      clearInterval(this.pollIntervals.get(egressId));
+      this.pollIntervals.delete(egressId);
+      console.log(`[RecordingService] Stopped polling for egress ${egressId} (webhook received)`);
     }
   }
 }

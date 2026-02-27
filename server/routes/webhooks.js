@@ -118,6 +118,9 @@ async function handleEgressEnded(event) {
   const { egress } = event;
   console.log(`[Webhooks] Egress ended: ${egress.egressId} for room: ${egress.roomName}`);
 
+  // Stop polling if it was started (webhook arrived first)
+  recordingService.stopPollingForCompletion(egress.egressId);
+
   // Handle recording completion
   await recordingService.handleRecordingComplete(egress.egressId, egress);
 }
