@@ -493,27 +493,22 @@ class RecordingService {
         }
       }
       
-      // Fix: Remove .mp4 extension if fileName already has .m4a (LiveKit sometimes adds .mp4)
+      // Note: LiveKit may save files with .m4a.mp4 extension
+      // We should keep the actual file extension as it exists in R2
+      // Do NOT remove .mp4 extension - the file in R2 has .m4a.mp4, so we need to use that
       if (fileName && fileName.endsWith('.m4a.mp4')) {
-        fileName = fileName.replace(/\.mp4$/, '');
-        console.log(`[RecordingService] Fixed double extension, new fileName: ${fileName}`);
+        console.log(`[RecordingService] File has .m4a.mp4 extension (keeping as-is): ${fileName}`);
       }
       
       // Now construct fileUrl if we have fileName
       if (fileName) {
-        // If LiveKit provides a direct URL, use it but fix the extension if needed
+        // If LiveKit provides a direct URL, use it as-is (don't modify the extension)
         if (egressInfo.file && egressInfo.file.url) {
           fileUrl = egressInfo.file.url;
-          // Fix the URL extension if it has .m4a.mp4
-          if (fileUrl.endsWith('.m4a.mp4')) {
-            fileUrl = fileUrl.replace(/\.mp4$/, '');
-            console.log(`[RecordingService] Fixed double extension in URL, new fileUrl: ${fileUrl}`);
-          } else {
-            console.log(`[RecordingService] Using direct URL from LiveKit: ${fileUrl}`);
-          }
+          console.log(`[RecordingService] Using direct URL from LiveKit: ${fileUrl}`);
         } else if (config.r2.publicUrl) {
           // Use configured public URL (R2 public bucket URL or custom domain)
-          // fileName already includes 'audios/' prefix and has been fixed (no .mp4), so just prepend the base URL
+          // fileName already includes 'audios/' prefix - use it as-is (may be .m4a.mp4)
           const baseUrl = config.r2.publicUrl.replace(/\/$/, '');
           fileUrl = `${baseUrl}/${fileName}`;
           console.log(`[RecordingService] Constructed fileUrl from R2 public URL: ${fileUrl}`);
