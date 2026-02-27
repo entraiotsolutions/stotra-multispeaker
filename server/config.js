@@ -37,7 +37,8 @@ module.exports = {
 
   // Main Backend Configuration (for notifying about recording completion)
   mainBackend: {
-    webhookUrl: process.env.MAIN_BACKEND_URL || process.env.SAMHITA_BACKEND_URL, // e.g., https://samhita-backend-3.onrender.com
+    url: process.env.MAIN_BACKEND_URL || process.env.SAMHITA_BACKEND_URL, // e.g., https://samhita-backend-3.onrender.com
+    webhookUrl: process.env.MAIN_BACKEND_URL || process.env.SAMHITA_BACKEND_URL, // Alias for webhookUrl
     webhookSecret: process.env.MAIN_BACKEND_WEBHOOK_SECRET || process.env.LIVEKIT_WEBHOOK_SECRET || 'dev-webhook-secret',
   },
 };

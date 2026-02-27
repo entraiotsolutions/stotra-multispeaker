@@ -504,10 +504,14 @@ class RecordingService {
       console.log(`[RecordingService] Recording metadata saved with ID: ${savedRecording.id}`);
 
       // Notify main backend about recording completion (if configured)
-      if (config.mainBackend?.webhookUrl && fileUrl) {
+      const mainBackendUrl = config.mainBackend?.webhookUrl || config.mainBackend?.url;
+      if (mainBackendUrl && fileUrl) {
         try {
-          const webhookUrl = `${config.mainBackend.webhookUrl}/api/v1/webhooks/recording-complete`;
+          const webhookUrl = `${mainBackendUrl}/api/v1/webhooks/recording-complete`;
           const webhookSecret = config.mainBackend.webhookSecret || config.server.webhookSecret;
+          
+          console.log(`[RecordingService] Notifying main backend: ${webhookUrl}`);
+          console.log(`[RecordingService] Room name (sessionId): ${session.sessionId}`);
           
           const response = await fetch(webhookUrl, {
             method: 'POST',
@@ -528,11 +532,20 @@ class RecordingService {
             console.log(`[RecordingService] ✅ Notified main backend about recording completion`);
             console.log(`[RecordingService] Main backend response:`, result);
           } else {
+            const errorText = await response.text().catch(() => 'No error details');
             console.warn(`[RecordingService] ⚠️ Failed to notify main backend: ${response.status} ${response.statusText}`);
+            console.warn(`[RecordingService] Error details:`, errorText);
           }
         } catch (webhookError) {
           console.error(`[RecordingService] Error notifying main backend:`, webhookError);
           // Don't fail the recording completion if webhook fails
+        }
+      } else {
+        if (!mainBackendUrl) {
+          console.warn(`[RecordingService] ⚠️ MAIN_BACKEND_URL not configured - skipping webhook notification`);
+        }
+        if (!fileUrl) {
+          console.warn(`[RecordingService] ⚠️ No file URL - skipping webhook notification`);
         }
       }
     } catch (error) {
