@@ -37,18 +37,23 @@ router.post('/:sessionId/join', async (req, res) => {
     // Check if session exists, create if it doesn't (for flexibility)
     let session = sessionService.getSession(sessionId);
     if (!session) {
-      // Auto-create session if it doesn't exist
-      session = sessionService.createSession();
-      // Override with requested sessionId if it's valid format
-      if (sessionId && /^[A-Z0-9]{8,10}$/.test(sessionId)) {
-        sessionService.sessions.delete(session.sessionId);
-        session.sessionId = sessionId;
-        session.roomName = sessionId;
-        sessionService.sessions.set(sessionId, session);
-      } else {
-        res.status(400).json({ success: false, error: 'Invalid session ID format' });
+      // Validate sessionId format - accept alphanumeric with hyphens (for room names like project-xxx-task-yyy)
+      // Also accept the original 8-10 character format for backward compatibility
+      const isValidFormat = sessionId && (
+        /^[A-Z0-9]{8,10}$/.test(sessionId) || // Original format: 8-10 uppercase alphanumeric
+        /^[a-zA-Z0-9\-_]{3,100}$/.test(sessionId) // New format: alphanumeric with hyphens/underscores, 3-100 chars
+      );
+      
+      if (!isValidFormat) {
+        res.status(400).json({ 
+          success: false, 
+          error: 'Invalid session ID format. Must be 8-10 uppercase alphanumeric characters, or 3-100 alphanumeric characters with hyphens/underscores.' 
+        });
         return;
       }
+      
+      // Auto-create session if it doesn't exist
+      session = sessionService.createOrGetSession(sessionId, identity);
     }
 
     // Generate token
